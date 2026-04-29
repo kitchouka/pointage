@@ -147,24 +147,29 @@
 
         pts.forEach((pt, idx) => {
           const hasFullDay = pt.heure_arrivee === "08:00" && (pt.heure_depart === "17:00" || pt.heure_depart === "16:00");
-          const isFri = date => { const d = new Date(date); return d.getDay() === 5; };
           const dateStr = document.getElementById("pointage-date").value;
-          const isFriday = isFri(dateStr);
+          const isFriday = new Date(dateStr).getDay() === 5;
 
           const line = document.createElement("div");
           line.className = "line-row flex items-center gap-2 px-4 py-2 " + (idx % 2 === 0 ? "bg-white" : "bg-gray-50/50");
+
+          const delVisible = pts.length > 1;
           line.innerHTML = `
             <label class="text-xs text-gray-400 w-4">${idx+1}</label>
-            <input type="checkbox" class="toggle full-day-cb" ${hasFullDay ? 'checked' : ''} title="Journée complète">
-            <input type="time" class="border rounded px-2 py-1 text-sm w-24 arr" value="${pt.heure_arrivee || ""}" ${hasFullDay ? 'disabled' : ''}>
-            <input type="time" class="border rounded px-2 py-1 text-sm w-24 dep" value="${pt.heure_depart || ""}" ${hasFullDay ? 'disabled' : ''}>
-            <select class="border rounded px-2 py-1 text-sm min-w-32 chantier-sel">
+            <label class="flex items-center gap-1 text-xs text-gray-600" title="Journée complète 8h-17h">
+              <input type="checkbox" class="toggle full-day-cb" ${hasFullDay ? 'checked' : ''}> J
+            </label>
+            <input type="time" class="border rounded px-2 py-1 text-sm w-22 arr" value="${pt.heure_arrivee || ""}" ${hasFullDay ? 'disabled' : ''}>
+            <input type="time" class="border rounded px-2 py-1 text-sm w-22 dep" value="${pt.heure_depart || ""}" ${hasFullDay ? 'disabled' : ''}>
+            <select class="border rounded px-2 py-1 text-sm w-36 chantier-sel">
               <option value="">-- Chantier --</option>
               ${allChan.map(c => `<option value="${c.id}" ${String(pt.chantier_id) == String(c.id) ? 'selected' : ''}>${c.nom}</option>`).join("")}
             </select>
-            <input type="checkbox" class="toggle absent-cb" ${pt.motif_absence ? 'checked' : ''}>
-            <input type="text" class="border rounded px-2 py-1 text-sm w-28 motif" placeholder="Motif" value="${pt.motif_absence || ""}" ${pt.motif_absence ? '' : 'disabled'}>
-            <button onclick="delLine(this)" class="text-red-400 text-xs hover:text-red-600 ${pts.length <= 1 ? 'invisible' : ''}">✕</button>
+            <label class="flex items-center gap-1 text-xs text-red-600" title="Absent">
+              <input type="checkbox" class="toggle absent-cb" ${pt.motif_absence ? 'checked' : ''}> Abs
+            </label>
+            <input type="text" class="border rounded px-2 py-1 text-sm w-24 motif" placeholder="Motif" value="${pt.motif_absence || ""}" ${pt.motif_absence ? '' : 'disabled'}>
+            <button onclick="delLine(this)" class="text-red-400 text-xs hover:text-red-600 ${delVisible ? '' : 'invisible'}">✕</button>
           `;
           linesDiv.appendChild(line);
         });
@@ -174,7 +179,7 @@
         // Bottom actions: checkbox "Absent toute la journée" etc.
         const bottom = document.createElement("div");
         bottom.className = "px-4 py-1.5 border-t bg-gray-50/30 flex gap-4 items-center text-xs text-gray-500";
-        bottom.innerHTML = `<label><input type="checkbox" class="toggle desactive-cb"> Désactivé (pas de pointage)</label>`;
+        bottom.innerHTML = `<label class="flex items-center gap-1.5 text-xs text-gray-500"><input type="checkbox" class="toggle desactive-cb"> Désactivé (pas de pointage ce jour)</label>`;
         block.appendChild(bottom);
 
         grid.appendChild(block);
@@ -228,14 +233,18 @@
       line.className = "line-row flex items-center gap-2 px-4 py-2 bg-gray-50/50";
       line.innerHTML = `
         <label class="text-xs text-gray-400 w-4">${cnt}</label>
-        <input type="checkbox" class="toggle full-day-cb">
-        <input type="time" class="border rounded px-2 py-1 text-sm w-24 arr">
-        <input type="time" class="border rounded px-2 py-1 text-sm w-24 dep">
-        <select class="border rounded px-2 py-1 text-sm min-w-32 chantier-sel"><option value="">-- Chantier --</option>
+        <label class="flex items-center gap-1 text-xs text-gray-600" title="Journée complète 8h-17h">
+          <input type="checkbox" class="toggle full-day-cb"> J
+        </label>
+        <input type="time" class="border rounded px-2 py-1 text-sm w-22 arr">
+        <input type="time" class="border rounded px-2 py-1 text-sm w-22 dep">
+        <select class="border rounded px-2 py-1 text-sm w-36 chantier-sel"><option value="">-- Chantier --</option>
           ${allChan.map(c => `<option value="${c.id}">${c.nom}</option>`).join("")}
         </select>
-        <input type="checkbox" class="toggle absent-cb">
-        <input type="text" class="border rounded px-2 py-1 text-sm w-28 motif" placeholder="Motif" disabled>
+        <label class="flex items-center gap-1 text-xs text-red-600" title="Absent">
+          <input type="checkbox" class="toggle absent-cb"> Abs
+        </label>
+        <input type="text" class="border rounded px-2 py-1 text-sm w-24 motif" placeholder="Motif" disabled>
         <button onclick="delLine(this)" class="text-red-400 text-xs hover:text-red-600">✕</button>
       `;
       container.appendChild(line);
@@ -270,9 +279,14 @@
       if (container.querySelectorAll(".line-row").length <= 1) return;
       const row = btn.closest(".line-row");
       row.remove();
-      // Renumber
-      container.querySelectorAll(".line-row").forEach((r, i) => {
-        r.querySelector("label").textContent = i + 1;
+      // Renumber + toggle del buttons visibility
+      const rows = container.querySelectorAll(".line-row");
+      rows.forEach((r, i) => {
+        r.querySelector("label:first-child").textContent = i + 1;
+        const delBtn = r.querySelector("button");
+        if (delBtn) {
+          delBtn.classList.toggle("invisible", rows.length === 1);
+        }
       });
     }
 
