@@ -70,6 +70,31 @@ try {
   db.exec(`ALTER TABLE chantiers ADD COLUMN prix_vente_horaire REAL`);
 } catch (_) { /* colonne déjà présente */ }
 
+// Migration : supprimer la contrainte UNIQUE(salarie_id, date) si elle existe
+const pointagesSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pointages'").get();
+if (pointagesSchema && pointagesSchema.sql && pointagesSchema.sql.toUpperCase().includes("UNIQUE")) {
+  console.log("Migration pointages: suppression de la contrainte UNIQUE...");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pointages_v2 (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      salarie_id INTEGER NOT NULL,
+      chantier_id INTEGER,
+      date TEXT NOT NULL,
+      heure_arrivee TEXT,
+      heure_depart TEXT,
+      type TEXT DEFAULT 'auto',
+      commentaire TEXT,
+      motif_absence TEXT,
+      FOREIGN KEY (salarie_id) REFERENCES salaries(id),
+      FOREIGN KEY (chantier_id) REFERENCES chantiers(id)
+    );
+    INSERT INTO pointages_v2 SELECT * FROM pointages;
+    DROP TABLE pointages;
+    ALTER TABLE pointages_v2 RENAME TO pointages;
+  `);
+  console.log("Migration OK");
+}
+
 // --- Prepared statements ---
 // Salariés
 const getAllSalaries = db.prepare("SELECT * FROM salaries WHERE actif = 1 ORDER BY nom, prenom");
@@ -147,7 +172,6 @@ module.exports = {
   deleteAfectation: deleteAffectation,
   getPointagesByDate,
   getPointagesByRange,
-  getPointageForSalarieDate,
   createPointage,
   updatePointage,
   deletePointage,

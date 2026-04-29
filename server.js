@@ -18,7 +18,6 @@ const {
   deleteAfectation,
   getPointagesByDate,
   getPointagesByRange,
-  getPointageForSalarieDate,
   createPointage,
   updatePointage,
   deletePointage,
