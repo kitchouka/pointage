@@ -6,8 +6,7 @@
   <title>Pointage — Pointage Chantier</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    input[type=checkbox].toggle { width: 18px; height: 18px; cursor: pointer; }
-    .sal-block { border-left: 3px solid #e5e7eb; }
+    input[type=number].hours { width: 50px; }
   </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -26,11 +25,11 @@
     <div class="flex items-center justify-between mb-6">
       <div>
         <h1 class="text-2xl font-bold">📋 Pointage du jour</h1>
-        <p class="text-xs text-gray-500 mt-1">Affecter chaque salarié à un chantier ou en absence.</p>
+        <p class="text-xs text-gray-500 mt-1" id="date-label"></p>
       </div>
       <div class="flex gap-2 items-center">
         <input type="date" id="pointage-date" class="border rounded-lg px-3 py-2 text-sm">
-        <button onclick="saveAll()" class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">💾 Sauvegarder tout</button>
+        <button onclick="saveAll()" class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">💾 Sauvegarder</button>
         <button onclick="openGenModal()" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700">⚡ Générer</button>
       </div>
     </div>
@@ -44,7 +43,6 @@
   <div id="gen-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
     <div class="bg-white rounded-xl p-6 w-96">
       <h2 class="text-lg font-bold mb-4">⚡ Affecter un salarié à un chantier</h2>
-      <p class="text-xs text-gray-500 mb-4">Génère les pointages automatiques (8h-17h Lun-Jeu, 8h-16h Ven).</p>
       <div class="space-y-3">
         <label class="text-sm block"><span class="text-gray-500">Salarié</span>
           <select id="g-sal" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm"></select>
@@ -68,16 +66,16 @@
   <script>
     const today = new Date();
     const ds = d => d.toISOString().split("T")[0];
-    document.getElementById("pointage-date").value = ds(today);
-    document.getElementById("g-from").value = ds(today);
+    const todayInput = document.getElementById("pointage-date");
+    todayInput.value = ds(today);
+    const gFrom = document.getElementById("g-from"), gTo = document.getElementById("g-to");
+    gFrom.value = ds(today);
     const nextFri = new Date(today); nextFri.setDate(today.getDate() + ((5 - today.getDay() + 7) % 7));
-    document.getElementById("g-to").value = ds(nextFri);
+    gTo.value = ds(nextFri);
 
     let allSal = [], allChan = [];
 
     function getMaxHours(dateStr) { return new Date(dateStr).getDay() === 5 ? 7 : 8; }
-    function getDep(dateStr) { return new Date(dateStr).getDay() === 5 ? "16:00" : "17:00"; }
-    function calcMin(arr, dep) { if (!arr || !dep) return 0; const [ah,am]=arr.split(":").map(Number); const [dh,dm]=dep.split(":").map(Number); return (dh*60+dm)-(ah*60+am); }
 
     async function load() {
       [allSal, allChan] = await Promise.all([
@@ -86,11 +84,13 @@
       ]);
       document.getElementById("g-sal").innerHTML = allSal.map(s=>`<option value="${s.id}">${s.nom} ${s.prenom}</option>`).join("");
       document.getElementById("g-chan").innerHTML = allChan.map(c=>`<option value="${c.id}">${c.nom}</option>`).join("");
-      loadForDate(document.getElementById("pointage-date").value);
+      loadForDate(todayInput.value);
     }
 
     async function loadForDate(date) {
       if (!date) return;
+      const maxH = getMaxHours(date);
+      document.getElementById("date-label").textContent = `Max ${maxH}h/jour · Vendredi = 7h`;
       const [pts, alers] = await Promise.all([
         fetch(`/api/pointages?date=${date}`).then(r=>r.json()),
         fetch(`/api/alertes?date=${date}`).then(r=>r.json())
@@ -100,14 +100,16 @@
         abar.classList.remove("hidden");
         abar.innerHTML = alers.map(a=>`<div class="bg-amber-50 border-l-4 border-amber-400 px-4 py-2 text-sm">${a.type==="double_affectation"?"🔴":"🟡"} ${a.message}</div>`).join("");
       } else abar.classList.add("hidden");
-      render(pts, date);
+      render(pts);
     }
 
-    function render(pointages, date) {
+    function chanOptions(selectedId) {
+      return allChan.map(c => `<option value="c:${c.id}" ${String(selectedId)==String(c.id)?'selected':''}>${c.nom}</option>`).join("");
+    }
+
+    function render(pointages) {
       const grid = document.getElementById("salarie-grid");
       grid.innerHTML = "";
-      const maxH = getMaxHours(date);
-      const dep = getDep(date);
 
       const bySal = {};
       pointages.forEach(p => { if (!bySal[p.salarie_id]) bySal[p.salarie_id] = []; bySal[p.salarie_id].push(p); });
@@ -117,56 +119,48 @@
         if (pts.length === 0) pts.push({});
 
         const block = document.createElement("div");
-        block.className = "sal-block bg-white rounded-xl shadow overflow-hidden";
+        block.className = "bg-white rounded-xl shadow overflow-hidden sal-block";
         block.dataset.salId = s.id;
 
         const head = document.createElement("div");
         head.className = "bg-gray-50 px-4 py-2 flex items-center justify-between border-b";
-        head.innerHTML = `<span class="font-semibold text-sm">${s.nom} ${s.prenom}</span><button onclick="addLine(this,${s.id})" class="text-blue-600 text-xs border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50">+ Ligne</button>`;
+        head.innerHTML = `<span class="font-semibold text-sm">${s.nom} ${s.prenom}</span><button onclick="addLine(this)" class="text-blue-600 text-xs border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50">+ Ligne</button>`;
         block.appendChild(head);
 
         const linesDiv = document.createElement("div");
         linesDiv.className = "lines-c";
 
         pts.forEach((pt, idx) => {
-          const isFull = pt.heure_arrivee === "08:00" && (pt.heure_depart === "17:00" || pt.heure_depart === "16:00");
+          const hours = pt.heure_arrivee && pt.heure_depart ? (parseInt(pt.heure_depart.split(":")[0]) + parseInt(pt.heure_depart.split(":")[1])/60 - parseInt(pt.heure_arrivee.split(":")[0]) - parseInt(pt.heure_arrivee.split(":")[1])/60) : "";
           const isAbs = !!pt.motif_absence;
+          const affectVal = isAbs ? "absence" : (pt.chantier_id ? `c:${pt.chantier_id}` : "");
           const delVis = pts.length > 1;
+          const motifVal = pt.motif_absence || "";
 
           const line = document.createElement("div");
-          line.className = `line-row flex items-center gap-2 px-4 py-2 ${idx%2?"bg-gray-50/50":"bg-white"}`;
+          line.className = `line-row flex items-center gap-2 px-4 py-2 ${idx%2?'bg-gray-50/50':'bg-white'}`;
           line.innerHTML = `
             <label class="text-xs text-gray-400 w-4">${idx+1}</label>
-            <label class="flex items-center gap-1 text-xs text-gray-600"><input type="checkbox" class="toggle full-day-cb" ${isFull?'checked':''}> J (${maxH}h)</label>
-            <input type="time" class="border rounded px-2 py-1 text-sm w-22 arr" value="${pt.heure_arrivee||''}" ${isFull?'disabled':''}>
-            <input type="time" class="border rounded px-2 py-1 text-sm w-22 dep" value="${pt.heure_depart||''}" ${isFull?'disabled':''}>
+            <input type="number" class="border rounded px-2 py-1 text-sm hours w-14 nb-h" min="1" max="8" value="${hours||''}" placeholder="Heures" step="0.5">
             <select class="border rounded px-2 py-1 text-sm w-40 affect-sel">
               <option value="">-- Affectation --</option>
-              ${allChan.map(c=>`<option value="${c.id}" ${String(pt.chantier_id)==String(c.id)?'selected':''}>${c.nom}</option>`).join("")}
+              ${chanOptions(pt.chantier_id)}
               <option value="absence" ${isAbs?'selected':''}>🚫 Absence</option>
             </select>
-            <input type="text" class="border rounded px-2 py-1 text-sm w-28 motif" placeholder="Motif" value="${pt.motif_absence||''}" style="${isAbs?'':'display:none'}">
+            <input type="text" class="border rounded px-2 py-1 text-sm w-28 motif" placeholder="Motif" value="${motifVal}" style="${isAbs?'':'display:none'}">
             <button onclick="delLine(this)" class="text-red-400 text-xs hover:text-red-600 ${delVis?'':'hidden'}">✕</button>`;
           linesDiv.appendChild(line);
         });
 
         block.appendChild(linesDiv);
         const bottom = document.createElement("div");
-        bottom.className = "px-4 py-1.5 border-t bg-gray-50/30";
-        bottom.innerHTML = `<label class="flex items-center gap-1.5 text-xs text-gray-500"><input type="checkbox" class="toggle desactive-cb"> Désactivé ce jour</label>`;
+        bottom.className = "px-4 py-1.5 border-t bg-gray-50/30 flex items-center gap-4 text-xs";
+        bottom.innerHTML = `<span class="text-gray-500 total-h">Total : 0h</span><label class="flex items-center gap-1.5 text-gray-500"><input type="checkbox" class="toggle desactive-cb"> Désactivé</label>`;
         block.appendChild(bottom);
         grid.appendChild(block);
       }
 
       // Wire up events
-      document.querySelectorAll(".full-day-cb").forEach(cb => {
-        cb.addEventListener("change", e => {
-          const row = e.target.closest(".line-row");
-          const arr = row.querySelector(".arr"), depInp = row.querySelector(".dep");
-          if (e.target.checked) { arr.value = "08:00"; depInp.value = dep; arr.disabled = true; depInp.disabled = true; }
-          else { arr.disabled = false; depInp.disabled = false; }
-        });
-      });
       document.querySelectorAll(".affect-sel").forEach(sel => {
         sel.addEventListener("change", e => {
           const motif = e.target.closest(".line-row").querySelector(".motif");
@@ -174,39 +168,42 @@
           if (e.target.value !== "absence") motif.value = "";
         });
       });
+      document.querySelectorAll(".nb-h").forEach(inp => {
+        inp.addEventListener("input", e => {
+          const block = e.target.closest(".sal-block");
+          updateTotal(block);
+        });
+      });
     }
 
-    function addLine(btn, salId) {
+    function updateTotal(block) {
+      let total = 0;
+      block.querySelectorAll(".nb-h").forEach(inp => { total += parseFloat(inp.value) || 0; });
+      block.querySelector(".total-h").textContent = `Total : ${total}h`;
+    }
+
+    function addLine(btn) {
       const container = btn.closest(".sal-block").querySelector(".lines-c");
-      const date = document.getElementById("pointage-date").value;
-      const maxH = getMaxHours(date);
-      const dep = getDep(date);
       const cnt = container.querySelectorAll(".line-row").length + 1;
       const div = document.createElement("div");
       div.className = "line-row flex items-center gap-2 px-4 py-2 bg-gray-50/50";
       div.innerHTML = `
         <label class="text-xs text-gray-400 w-4">${cnt}</label>
-        <label class="flex items-center gap-1 text-xs text-gray-600"><input type="checkbox" class="toggle full-day-cb"> J (${maxH}h)</label>
-        <input type="time" class="border rounded px-2 py-1 text-sm w-22 arr">
-        <input type="time" class="border rounded px-2 py-1 text-sm w-22 dep">
+        <input type="number" class="border rounded px-2 py-1 text-sm hours w-14 nb-h" min="1" max="8" value="" placeholder="Heures" step="0.5">
         <select class="border rounded px-2 py-1 text-sm w-40 affect-sel">
           <option value="">-- Affectation --</option>
-          ${allChan.map(c=>`<option value="${c.id}">${c.nom}</option>`).join("")}
+          ${allChan.map(c=>`<option value="c:${c.id}">${c.nom}</option>`).join("")}
           <option value="absence">🚫 Absence</option>
         </select>
         <input type="text" class="border rounded px-2 py-1 text-sm w-28 motif" placeholder="Motif" style="display:none">
         <button onclick="delLine(this)" class="text-red-400 text-xs hover:text-red-600">✕</button>`;
       container.appendChild(div);
-      div.querySelector(".full-day-cb").addEventListener("change", e => {
-        const arr = div.querySelector(".arr"), depInp = div.querySelector(".dep");
-        if (e.target.checked) { arr.value = "08:00"; depInp.value = dep; arr.disabled = true; depInp.disabled = true; }
-        else { arr.disabled = false; depInp.disabled = false; }
-      });
       div.querySelector(".affect-sel").addEventListener("change", e => {
         const motif = div.querySelector(".motif");
         motif.style.display = e.target.value === "absence" ? "" : "none";
         if (e.target.value !== "absence") motif.value = "";
       });
+      div.querySelector(".nb-h").addEventListener("input", e => { updateTotal(div.closest(".sal-block")); });
     }
 
     function delLine(btn) {
@@ -214,13 +211,12 @@
       if (container.querySelectorAll(".line-row").length <= 1) return;
       btn.closest(".line-row").remove();
       container.querySelectorAll(".line-row").forEach((r,i) => { r.querySelector("label:first-child").textContent = i+1; });
+      updateTotal(btn.closest(".sal-block"));
     }
 
     async function saveAll() {
-      const date = document.getElementById("pointage-date").value;
+      const date = todayInput.value;
       const maxH = getMaxHours(date);
-      const maxMin = maxH * 60;
-      const depTime = getDep(date);
       const lines = [], missing = [];
 
       document.querySelectorAll(".sal-block").forEach(block => {
@@ -228,50 +224,45 @@
         const name = block.querySelector(".font-semibold").textContent.trim();
         if (block.querySelector(".desactive-cb").checked) return;
 
-        let chMin = 0, hasWork = false, hasAbs = false;
+        let totalH = 0, nbLines = 0;
 
         block.querySelectorAll(".line-row").forEach(row => {
           const affect = row.querySelector(".affect-sel").value;
           const motif = row.querySelector(".motif").value;
-          const full = row.querySelector(".full-day-cb").checked;
-          let arr = row.querySelector(".arr").value;
-          let depVal = row.querySelector(".dep").value;
+          const hours = parseFloat(row.querySelector(".nb-h").value) || 0;
 
-          if (!affect) return;
+          if (!affect || hours === 0) return;
+
+          nbLines++;
+          totalH += hours;
 
           if (affect === "absence") {
-            hasAbs = true;
-            lines.push({
-              salarie_id: salId, chantier_id: null,
-              heure_arrivee: full ? "08:00" : (arr || null),
-              heure_depart: full ? depTime : (depVal || null),
-              motif_absence: motif || "Absence", type: "manuel"
-            });
-            return;
+            lines.push({ salarie_id: salId, chantier_id: null, heure_arrivee: null, heure_depart: null, motif_absence: motif || "Absence", commentaire: hours + "h", type: "manuel" });
+          } else {
+            lines.push({ salarie_id: salId, chantier_id: parseInt(affect.replace("c:","")), heure_arrivee: null, heure_depart: null, commentaire: hours + "h", type: "manuel" });
           }
-
-          hasWork = true;
-          if (full) {
-            arr = "08:00"; depVal = depTime;
-          } else if (!arr && !depVal) {
-            arr = "08:00"; depVal = depTime;
-          }
-          chMin += calcMin(arr, depVal);
-          lines.push({ salarie_id: salId, chantier_id: parseInt(affect), heure_arrivee: arr, heure_depart: depVal, motif_absence: null, type: "manuel" });
         });
 
-        if (!hasWork && !hasAbs) { missing.push(`⚠️ ${name} : aucune saisie`); }
-        else if (!hasAbs && chMin > maxMin) { missing.push(`⚠️ ${name} : ${chMin/60}h > ${maxH}h`); }
-        else if (!hasAbs && chMin < maxMin) { missing.push(`⚠️ ${name} : ${chMin/60}h < ${maxH}h`); }
-        else if (hasWork && hasAbs && chMin > maxMin) { missing.push(`⚠️ ${name} : chantier + absence > ${maxH}h`); }
+        if (nbLines === 0) missing.push(`⚠️ ${name} : aucune saisie`);
+        else if (totalH !== maxH) missing.push(`⚠️ ${name} : ${totalH}h au lieu de ${maxH}h`);
       });
 
       const msgEl = document.getElementById("msg");
-      if (missing.length) { msgEl.innerHTML = missing.join("<br>"); msgEl.className = "mt-4 text-sm text-red-600 font-medium"; msgEl.classList.remove("hidden"); setTimeout(()=>msgEl.classList.add("hidden"),5000); return; }
-      if (!lines.length) { msgEl.textContent = "Rien à sauvegarder"; msgEl.className = "mt-4 text-sm text-gray-500 font-medium"; msgEl.classList.remove("hidden"); setTimeout(()=>msgEl.classList.add("hidden"),3000); return; }
+      if (missing.length > 0) {
+        msgEl.innerHTML = missing.join("<br>");
+        msgEl.className = "mt-4 text-sm text-red-600 font-medium";
+        msgEl.classList.remove("hidden");
+        setTimeout(()=>msgEl.classList.add("hidden"),5000);
+        return;
+      }
+      if (!lines.length) {
+        msgEl.textContent = "Rien à sauvegarder"; msgEl.className = "mt-4 text-sm text-gray-500 font-medium";
+        msgEl.classList.remove("hidden"); setTimeout(()=>msgEl.classList.add("hidden"),3000); return;
+      }
 
       await fetch("/api/pointages/bulk", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({date,lines}) });
-      msgEl.textContent = `${lines.length} ligne(s) sauvegardée(s) ✅`; msgEl.className = "mt-4 text-sm text-green-600 font-medium"; msgEl.classList.remove("hidden"); setTimeout(()=>msgEl.classList.add("hidden"),3000);
+      msgEl.textContent = `${lines.length} ligne(s) sauvegardée(s) ✅`; msgEl.className = "mt-4 text-sm text-green-600 font-medium";
+      msgEl.classList.remove("hidden"); setTimeout(()=>msgEl.classList.add("hidden"),3000);
       loadForDate(date);
     }
 
@@ -280,14 +271,14 @@
     async function doGenerate() {
       const sal = document.getElementById("g-sal").value, chan = document.getElementById("g-chan").value;
       const from = document.getElementById("g-from").value, to = document.getElementById("g-to").value;
-      if (!sal || !chan || !from || !to) return alert("Remplis tous les champs");
+      if (!sal||!chan||!from||!to) return alert("Remplis tous les champs");
       const res = await fetch("/api/generate", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({salarie_id:parseInt(sal),chantier_id:parseInt(chan),from,to})});
       const data = await res.json();
-      const r = document.getElementById("g-result"); r.textContent = data.message || "Fait !"; r.classList.remove("hidden");
-      setTimeout(()=>{ closeGenModal(); loadForDate(document.getElementById("pointage-date").value); }, 2000);
+      const r = document.getElementById("g-result"); r.textContent = data.message||"Fait !"; r.classList.remove("hidden");
+      setTimeout(()=>{ closeGenModal(); loadForDate(todayInput.value); }, 2000);
     }
 
-    document.getElementById("pointage-date").addEventListener("change", e => loadForDate(e.target.value));
+    todayInput.addEventListener("change", e => loadForDate(e.target.value));
     load();
   </script>
 </body>
