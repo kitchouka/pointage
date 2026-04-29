@@ -252,13 +252,10 @@ app.get("/api/alertes", (req, res) => {
 app.get("/api/rapports/chantier", (req, res) => {
   const { chantier_id, from, to } = req.query;
   if (!chantier_id || !from || !to) return res.json([]);
-  const rows = db.prepare(`
+  let rows = db.prepare(`
     SELECT s.id, s.nom, s.prenom,
       COUNT(DISTINCT p.date) as nb_jours,
-      SUM(CASE WHEN p.heure_arrivee AND p.heure_depart THEN
-        (CAST(substr(p.heure_depart,1,2) AS REAL) * 60 + CAST(substr(p.heure_depart,4,2) AS REAL)
-        - CAST(substr(p.heure_arrivee,1,2) AS REAL) * 60 - CAST(substr(p.heure_arrivee,4,2) AS REAL))
-      ELSE 0 END / 60.0) as total_heures
+      SUM(COALESCE(CAST(p.commentaire AS REAL), 0)) as total_heures
     FROM pointages p
     JOIN salaries s ON p.salarie_id = s.id
     WHERE p.chantier_id = ? AND p.date BETWEEN ? AND ?
@@ -270,13 +267,10 @@ app.get("/api/rapports/chantier", (req, res) => {
 app.get("/api/rapports/salarie", (req, res) => {
   const { salarie_id, from, to } = req.query;
   if (!salarie_id || !from || !to) return res.json([]);
-  const rows = db.prepare(`
+  let rows = db.prepare(`
     SELECT c.id, c.nom, c.client,
       COUNT(DISTINCT p.date) as nb_jours,
-      SUM(CASE WHEN p.heure_arrivee AND p.heure_depart THEN
-        (CAST(substr(p.heure_depart,1,2) AS REAL) * 60 + CAST(substr(p.heure_depart,4,2) AS REAL)
-        - CAST(substr(p.heure_arrivee,1,2) AS REAL) * 60 - CAST(substr(p.heure_arrivee,4,2) AS REAL))
-      ELSE 0 END / 60.0) as total_heures
+      SUM(COALESCE(CAST(p.commentaire AS REAL), 0)) as total_heures
     FROM pointages p
     JOIN chantiers c ON p.chantier_id = c.id
     WHERE p.salarie_id = ? AND p.date BETWEEN ? AND ?
@@ -315,24 +309,15 @@ app.get("/api/financier", (req, res) => {
 
   const chantier = db.prepare("SELECT * FROM chantiers WHERE id = ?").get(chantier_id);
 
-  // Total heures sur le mois
+  // Total heures sur le mois (depuis commentaires: "8h" → 8.0)
   const heures = db.prepare(`
-    SELECT
-      SUM(CASE WHEN heure_arrivee AND heure_depart THEN
-        (CAST(substr(heure_depart,1,2) AS REAL)*60 + CAST(substr(heure_depart,4,2) AS REAL)
-        - CAST(substr(heure_arrivee,1,2) AS REAL)*60 - CAST(substr(heure_arrivee,4,2) AS REAL))
-      ELSE 0 END / 60.0) as total_heures
+    SELECT SUM(COALESCE(CAST(commentaire AS REAL), 0)) as total_heures
     FROM pointages WHERE chantier_id = ? AND date BETWEEN ? AND ?
   `).get(chantier_id, monthStart, monthEnd);
 
-  // Coût matière ouvrière
+  // Coût main d'œuvre (heures × tarif du salarié)
   const mo = db.prepare(`
-    SELECT SUM(
-      CASE WHEN p.heure_arrivee AND p.heure_depart THEN
-        (CAST(substr(p.heure_depart,1,2) AS REAL)*60 + CAST(substr(p.heure_depart,4,2) AS REAL)
-        - CAST(substr(p.heure_arrivee,1,2) AS REAL)*60 - CAST(substr(p.heure_arrivee,4,2) AS REAL))
-      ELSE 0 END / 60.0 * s.tarif_horaire
-    ) as cout_mo
+    SELECT SUM(COALESCE(CAST(p.commentaire AS REAL), 0) * s.tarif_horaire) as cout_mo
     FROM pointages p
     JOIN salaries s ON p.salarie_id = s.id
     WHERE p.chantier_id = ? AND p.date BETWEEN ? AND ?

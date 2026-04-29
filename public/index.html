@@ -268,7 +268,11 @@
         msgEl.classList.remove("hidden"); setTimeout(()=>msgEl.classList.add("hidden"),3000); return;
       }
 
-      await fetch("/api/pointages/bulk", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({date,lines}) });
+      console.log("Lignes à sauvegarder:", JSON.stringify(lines));
+
+      const resp = await fetch("/api/pointages/bulk", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({date,lines}) });
+      const respData = await resp.json();
+      console.log("Réponse serveur:", respData);
       msgEl.textContent = `${lines.length} ligne(s) sauvegardée(s) ✅`; msgEl.className = "mt-4 text-sm text-green-600 font-medium";
       msgEl.classList.remove("hidden"); setTimeout(()=>msgEl.classList.add("hidden"),3000);
       loadForDate(date);
