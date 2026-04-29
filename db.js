@@ -64,9 +64,12 @@ CREATE TABLE IF NOT EXISTS materiaux (
   fournisseur TEXT,
   FOREIGN KEY (chantier_id) REFERENCES chantiers(id)
 );
-
-ALTER TABLE chantiers ADD COLUMN prix_vente_horaire REAL;
 `);
+
+// Migration silencieuse pour ajouter la colonne prix_vente_horaire si elle n'existe pas
+try {
+  db.exec(`ALTER TABLE chantiers ADD COLUMN prix_vente_horaire REAL`);
+} catch (_) { /* colonne déjà présente */ }
 
 // --- Prepared statements ---
 // Salariés
@@ -86,10 +89,10 @@ const getAllChantiers = db.prepare("SELECT * FROM chantiers WHERE actif = 1 ORDE
 const getAllChantiersAll = db.prepare("SELECT * FROM chantiers ORDER BY nom");
 const getChantier = db.prepare("SELECT * FROM chantiers WHERE id = ?");
 const createChantier = db.prepare(
-  "INSERT INTO chantiers (nom, client, adresse, num_chantier, date_debut, date_fin) VALUES (?, ?, ?, ?, ?, ?)"
+  "INSERT INTO chantiers (nom, client, adresse, num_chantier, date_debut, date_fin, prix_vente_horaire) VALUES (?, ?, ?, ?, ?, ?, ?)"
 );
 const updateChantier = db.prepare(
-  "UPDATE chantiers SET nom = ?, client = ?, adresse = ?, num_chantier = ?, date_debut = ?, date_fin = ? WHERE id = ?"
+  "UPDATE chantiers SET nom = ?, client = ?, adresse = ?, num_chantier = ?, date_debut = ?, date_fin = ?, prix_vente_horaire = ? WHERE id = ?"
 );
 const toggleChantierActif = db.prepare("UPDATE chantiers SET actif = ? WHERE id = ?");
 
@@ -149,4 +152,8 @@ module.exports = {
   createPointage,
   updatePointage,
   deletePointage,
+  getMateriauxByChantier,
+  createMateriel,
+  deleteMateriel,
+  setPrixVente,
 };

@@ -71,15 +71,13 @@ app.get("/api/chantiers", (req, res) => {
 
 app.post("/api/chantiers", (req, res) => {
   const { nom, client, adresse, num_chantier, date_debut, date_fin, prix_vente_horaire } = req.body;
-  const result = createChantier.run(nom || "", client || "", adresse || "", num_chantier || "", date_debut || null, date_fin || null);
-  if (prix_vente_horaire) setPrixVente.run(prix_vente_horaire, result.lastInsertRowid);
+  const result = createChantier.run(nom || "", client || "", adresse || "", num_chantier || "", date_debut || null, date_fin || null, prix_vente_horaire || null);
   res.json({ id: result.lastInsertRowid });
 });
 
 app.put("/api/chantiers/:id", (req, res) => {
   const { nom, client, adresse, num_chantier, date_debut, date_fin, prix_vente_horaire } = req.body;
-  updateChantier.run(nom, client, adresse, num_chantier, date_debut, date_fin, req.params.id);
-  if (prix_vente_horaire !== undefined) setPrixVente.run(prix_vente_horaire, req.params.id);
+  updateChantier.run(nom, client, adresse, num_chantier, date_debut, date_fin, prix_vente_horaire || null, req.params.id);
   res.json({ ok: true });
 });
 
