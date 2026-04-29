@@ -7,6 +7,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     input[type=checkbox].toggle { width: 18px; height: 18px; cursor: pointer; }
+    .sal-block { border-left: 3px solid #e5e7eb; }
+    .sal-block.has-data { border-left-color: #3b82f6; }
   </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -24,7 +26,10 @@
   <div class="max-w-7xl mx-auto px-4 py-6">
     <!-- Header -->
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold">📋 Pointage du jour</h1>
+      <div>
+        <h1 class="text-2xl font-bold">📋 Pointage du jour</h1>
+        <p class="text-xs text-gray-500 mt-1">Un salarié peut avoir plusieurs lignes (ex: matin chantier A, aprem absence).</p>
+      </div>
       <div class="flex gap-2 items-center">
         <input type="date" id="pointage-date" class="border rounded-lg px-3 py-2 text-sm">
         <button onclick="saveAll()" class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">💾 Sauvegarder tout</button>
@@ -35,24 +40,8 @@
     <!-- Alertes -->
     <div id="alertes-bar" class="hidden mb-4"></div>
 
-    <!-- Tableau -->
-    <div class="bg-white rounded-xl shadow overflow-x-auto">
-      <table class="min-w-full text-sm">
-        <thead>
-          <tr class="border-b bg-gray-50">
-            <th class="p-3 text-left text-gray-600 w-10">☑</th>
-            <th class="p-3 text-left text-gray-600">Salarié</th>
-            <th class="p-3 text-left text-gray-600">Journée compl.</th>
-            <th class="p-3 text-left text-gray-600 w-28">Arrivée</th>
-            <th class="p-3 text-left text-gray-600 w-28">Départ</th>
-            <th class="p-3 text-left text-gray-600">Chantier</th>
-            <th class="p-3 text-left text-gray-600">Absent</th>
-            <th class="p-3 text-left text-gray-600 w-36">Motif</th>
-          </tr>
-        </thead>
-        <tbody id="tbody"></tbody>
-      </table>
-    </div>
+    <!-- Grille par salarié -->
+    <div id="salarie-grid" class="space-y-3"></div>
 
     <div id="msg" class="mt-4 text-sm text-green-600 hidden font-medium"></div>
   </div>
@@ -61,7 +50,7 @@
   <div id="gen-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
     <div class="bg-white rounded-xl p-6 w-96">
       <h2 class="text-lg font-bold mb-4">⚡ Générer les pointages</h2>
-      <p class="text-xs text-gray-500 mb-4">Les pointages sont auto-générés depuis les affectations (Lun-Jeu 8h-17h, Ven 8h-16h).</p>
+      <p class="text-xs text-gray-500 mb-4">Auto-générés depuis les affectations (Lun-Jeu 8h-17h, Ven 8h-16h).</p>
       <div class="space-y-3">
         <label class="text-sm block"><span class="text-gray-500">Du</span>
           <input type="date" id="g-from" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm">
@@ -81,203 +70,256 @@
   <script>
     const today = new Date();
     const ds = d => d.toISOString().split("T")[0];
-
-    // Init dates
     document.getElementById("pointage-date").value = ds(today);
-
-    let allSalaires = [];
-    let allChantiers = [];
-    let pointages = {};
-
-    // Init gen dates
     document.getElementById("g-from").value = ds(today);
     const nextFri = new Date(today); nextFri.setDate(today.getDate() + ((5 - today.getDay() + 7) % 7));
     document.getElementById("g-to").value = ds(nextFri);
 
+    let allSal = [], allChan = [];
+
     async function load() {
-      [allSalaires, allChantiers] = await Promise.all([
-        fetch("/api/salaries").then(r => r.json()),
-        fetch("/api/chantiers").then(r => r.json())
+      [allSal, allChan] = await Promise.all([
+        fetch("/api/salaries").then(r=>r.json()),
+        fetch("/api/chantiers").then(r=>r.json())
       ]);
       loadForDate(document.getElementById("pointage-date").value);
     }
 
     async function loadForDate(date) {
       if (!date) return;
-      const res = await fetch(`/api/pointages?date=${date}`);
-      const pts = await res.json();
-      pointages = {};
-      pts.forEach(p => { pointages[p.salarie_id] = p; });
+      const [pts, alers] = await Promise.all([
+        fetch(`/api/pointages?date=${date}`).then(r=>r.json()),
+        fetch(`/api/alertes?date=${date}`).then(r=>r.json())
+      ]);
 
-      // Alertes
-      const alers = await fetch(`/api/alertes?date=${date}`).then(r => r.json());
       const abar = document.getElementById("alertes-bar");
       if (alers.length > 0) {
         abar.classList.remove("hidden");
-        abar.innerHTML = alers.map(a =>
-          `<div class="bg-amber-50 border-l-4 border-amber-400 px-4 py-2 text-sm">${a.type === "double_affectation" ? "🔴" : "🟡"} ${a.message}</div>`
-        ).join("");
-      } else {
-        abar.classList.add("hidden");
-      }
+        abar.innerHTML = alers.map(a => `<div class="bg-amber-50 border-l-4 border-amber-400 px-4 py-2 text-sm">${a.type === "double_affectation" ? "🔴" : "🟡"} ${a.message}</div>`).join("");
+      } else abar.classList.add("hidden");
 
-      render();
+      render(pts);
     }
 
-    function render() {
-      const tb = document.getElementById("tbody");
-      tb.innerHTML = "";
+    function render(pointages) {
+      const grid = document.getElementById("salarie-grid");
+      grid.innerHTML = "";
 
-      for (const s of allSalaires) {
-        const pt = pointages[s.id] || {};
-        const tr = document.createElement("tr");
-        tr.className = "border-b hover:bg-gray-50";
-        tr.dataset.salarieId = s.id;
-
-        const hasHeure = pt.heure_arrivee && pt.heure_depart;
-        const isFullDay = hasHeure && pt.heure_arrivee === "08:00" && (pt.heure_depart === "17:00" || pt.heure_depart === "16:00");
-        const isAbsent = pt.motif_absence ? true : false;
-
-        const chanOpts = allChantiers.map(c =>
-          `<option value="${c.id}" ${String(pt.chantier_id) == String(c.id) ? 'selected' : ''}>${c.nom}</option>`
-        ).join("");
-
-        tr.innerHTML = `
-          <td class="p-3"><input type="checkbox" class="toggle row-cb" title="Activer"></td>
-          <td class="p-3 font-medium">${s.nom} ${s.prenom}</td>
-          <td class="p-3 text-center"><input type="checkbox" class="toggle full-day-cb" data-sal="${s.id}" ${isFullDay ? 'checked' : ''}></td>
-          <td class="p-3"><input type="time" class="border rounded px-2 py-1 text-sm w-24 arr" data-sal="${s.id}" value="${pt.heure_arrivee || ""}" ${isFullDay ? 'disabled' : ''}></td>
-          <td class="p-3"><input type="time" class="border rounded px-2 py-1 text-sm w-24 dep" data-sal="${s.id}" value="${pt.heure_depart || ""}" ${isFullDay ? 'disabled' : ''}></td>
-          <td class="p-3"><select class="border rounded px-2 py-1 text-sm chantier-sel" data-sal="${s.id}"><option value="">-- Aucun --</option>${chanOpts}</select></td>
-          <td class="p-3 text-center"><input type="checkbox" class="toggle absent-cb" data-sal="${s.id}" ${isAbsent ? 'checked' : ''}></td>
-          <td class="p-3"><input type="text" class="border rounded px-2 py-1 text-sm w-32 motif" data-sal="${s.id}" value="${pt.motif_absence || ""}" ${isAbsent ? '' : 'disabled'} placeholder="Maladie, congé..."></td>
-        `;
-        tb.appendChild(tr);
-      }
-
-      // Checkbox handlers
-      document.querySelectorAll(".row-cb").forEach(cb => {
-        cb.checked = !!pointages[cb.closest("tr").dataset.salarieId];
-        cb.addEventListener("change", (e) => {
-          const tr = e.target.closest("tr");
-        });
+      // Group by salarie_id
+      const bySal = {};
+      pointages.forEach(p => {
+        if (!bySal[p.salarie_id]) bySal[p.salarie_id] = [];
+        bySal[p.salarie_id].push(p);
       });
 
+      for (const s of allSal) {
+        const pts = bySal[s.id] || [];
+        if (pts.length === 0) pts.push({}); // empty row
+
+        const block = document.createElement("div");
+        block.className = "sal-block bg-white rounded-xl shadow overflow-hidden";
+        block.dataset.salId = s.id;
+
+        // Header with employee name + add line button
+        const head = document.createElement("div");
+        head.className = "bg-gray-50 px-4 py-2 flex items-center justify-between border-b";
+        head.innerHTML = `<span class="font-semibold text-sm">${s.nom} ${s.prenom}</span>
+          <button onclick="addLine(this, ${s.id})" class="text-blue-600 text-xs border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50">+ Ligne</button>`;
+        block.appendChild(head);
+
+        // Lines container
+        const linesDiv = document.createElement("div");
+        linesDiv.className = "lines-container";
+        linesDiv.dataset.salId = s.id;
+
+        pts.forEach((pt, idx) => {
+          const hasFullDay = pt.heure_arrivee === "08:00" && (pt.heure_depart === "17:00" || pt.heure_depart === "16:00");
+          const isFri = date => { const d = new Date(date); return d.getDay() === 5; };
+          const dateStr = document.getElementById("pointage-date").value;
+          const isFriday = isFri(dateStr);
+
+          const line = document.createElement("div");
+          line.className = "line-row flex items-center gap-2 px-4 py-2 " + (idx % 2 === 0 ? "bg-white" : "bg-gray-50/50");
+          line.innerHTML = `
+            <label class="text-xs text-gray-400 w-4">${idx+1}</label>
+            <input type="checkbox" class="toggle full-day-cb" ${hasFullDay ? 'checked' : ''} title="Journée complète">
+            <input type="time" class="border rounded px-2 py-1 text-sm w-24 arr" value="${pt.heure_arrivee || ""}" ${hasFullDay ? 'disabled' : ''}>
+            <input type="time" class="border rounded px-2 py-1 text-sm w-24 dep" value="${pt.heure_depart || ""}" ${hasFullDay ? 'disabled' : ''}>
+            <select class="border rounded px-2 py-1 text-sm min-w-32 chantier-sel">
+              <option value="">-- Chantier --</option>
+              ${allChan.map(c => `<option value="${c.id}" ${String(pt.chantier_id) == String(c.id) ? 'selected' : ''}>${c.nom}</option>`).join("")}
+            </select>
+            <input type="checkbox" class="toggle absent-cb" ${pt.motif_absence ? 'checked' : ''}>
+            <input type="text" class="border rounded px-2 py-1 text-sm w-28 motif" placeholder="Motif" value="${pt.motif_absence || ""}" ${pt.motif_absence ? '' : 'disabled'}>
+            <button onclick="delLine(this)" class="text-red-400 text-xs hover:text-red-600 ${pts.length <= 1 ? 'invisible' : ''}">✕</button>
+          `;
+          linesDiv.appendChild(line);
+        });
+
+        block.appendChild(linesDiv);
+
+        // Bottom actions: checkbox "Absent toute la journée" etc.
+        const bottom = document.createElement("div");
+        bottom.className = "px-4 py-1.5 border-t bg-gray-50/30 flex gap-4 items-center text-xs text-gray-500";
+        bottom.innerHTML = `<label><input type="checkbox" class="toggle desactive-cb"> Désactivé (pas de pointage)</label>`;
+        block.appendChild(bottom);
+
+        grid.appendChild(block);
+      }
+
+      // Wire up events
       document.querySelectorAll(".full-day-cb").forEach(cb => {
-        cb.addEventListener("change", (e) => {
-          const id = e.target.dataset.sal;
-          const tr = document.querySelector(`tr[data-salarie-id="${id}"]`);
-          const arr = tr.querySelector(".arr");
-          const dep = tr.querySelector(".dep");
+        cb.addEventListener("change", e => {
+          const row = e.target.closest(".line-row");
+          const arr = row.querySelector(".arr");
+          const dep = row.querySelector(".dep");
+          const date = document.getElementById("pointage-date").value;
+          const isFri = new Date(date).getDay() === 5;
           if (e.target.checked) {
-            // Determine if Friday
-            const dateSel = document.getElementById("pointage-date").value;
-            const d = new Date(dateSel);
-            const isFri = d.getDay() === 5;
             arr.value = "08:00";
             dep.value = isFri ? "16:00" : "17:00";
-            arr.disabled = true;
-            dep.disabled = true;
+            arr.disabled = true; dep.disabled = true;
           } else {
-            arr.disabled = false;
-            dep.disabled = false;
+            arr.disabled = false; dep.disabled = false;
           }
         });
       });
 
       document.querySelectorAll(".absent-cb").forEach(cb => {
-        cb.addEventListener("change", (e) => {
-          const tr = e.target.closest("tr");
-          const motif = tr.querySelector(".motif");
-          const arr = tr.querySelector(".arr");
-          const dep = tr.querySelector(".dep");
-          const fullCb = tr.querySelector(".full-day-cb");
+        cb.addEventListener("change", e => {
+          const row = e.target.closest(".line-row");
+          const motif = row.querySelector(".motif");
+          const fullCb = row.querySelector(".full-day-cb");
+          const arr = row.querySelector(".arr");
+          const dep = row.querySelector(".dep");
           if (e.target.checked) {
-            motif.disabled = false;
-            motif.focus();
-            arr.disabled = true; dep.disabled = true;
+            motif.disabled = false; motif.focus();
             fullCb.checked = false; fullCb.disabled = true;
+            arr.disabled = true; dep.disabled = true;
             arr.value = ""; dep.value = "";
           } else {
-            motif.disabled = true;
-            motif.value = "";
-            arr.disabled = false; dep.disabled = false;
+            motif.disabled = true; motif.value = "";
             fullCb.disabled = false;
+            arr.disabled = false; dep.disabled = false;
           }
         });
       });
+    }
 
-      // Check all rows that already have data
-      document.querySelectorAll(".row-cb").forEach(cb => {
-        const id = cb.closest("tr").dataset.salarieId;
-        const pt = pointages[id];
-        if (pt && (pt.chantier_id || pt.motif_absence || pt.heure_arrivee)) cb.checked = true;
+    function addLine(btn, salId) {
+      const container = btn.closest(".sal-block").querySelector(".lines-container");
+      const cnt = container.querySelectorAll(".line-row").length + 1;
+      const date = document.getElementById("pointage-date").value;
+      const isFri = new Date(date).getDay() === 5;
+      const line = document.createElement("div");
+      line.className = "line-row flex items-center gap-2 px-4 py-2 bg-gray-50/50";
+      line.innerHTML = `
+        <label class="text-xs text-gray-400 w-4">${cnt}</label>
+        <input type="checkbox" class="toggle full-day-cb">
+        <input type="time" class="border rounded px-2 py-1 text-sm w-24 arr">
+        <input type="time" class="border rounded px-2 py-1 text-sm w-24 dep">
+        <select class="border rounded px-2 py-1 text-sm min-w-32 chantier-sel"><option value="">-- Chantier --</option>
+          ${allChan.map(c => `<option value="${c.id}">${c.nom}</option>`).join("")}
+        </select>
+        <input type="checkbox" class="toggle absent-cb">
+        <input type="text" class="border rounded px-2 py-1 text-sm w-28 motif" placeholder="Motif" disabled>
+        <button onclick="delLine(this)" class="text-red-400 text-xs hover:text-red-600">✕</button>
+      `;
+      container.appendChild(line);
+
+      // Wire up events for new line
+      const fullCb = line.querySelector(".full-day-cb");
+      fullCb.addEventListener("change", e => {
+        const arr = line.querySelector(".arr"), dep = line.querySelector(".dep");
+        if (e.target.checked) {
+          arr.value = "08:00"; dep.value = isFri ? "16:00" : "17:00";
+          arr.disabled = true; dep.disabled = true;
+        } else { arr.disabled = false; dep.disabled = false; }
+      });
+      line.querySelector(".absent-cb").addEventListener("change", e => {
+        const motif = line.querySelector(".motif"), fullCb = line.querySelector(".full-day-cb");
+        const arr = line.querySelector(".arr"), dep = line.querySelector(".dep");
+        if (e.target.checked) {
+          motif.disabled = false;
+          fullCb.checked = false; fullCb.disabled = true;
+          arr.disabled = true; dep.disabled = true;
+          arr.value = ""; dep.value = "";
+        } else {
+          motif.disabled = true; motif.value = "";
+          fullCb.disabled = false;
+          arr.disabled = false; dep.disabled = false;
+        }
+      });
+    }
+
+    function delLine(btn) {
+      const container = btn.closest(".lines-container");
+      if (container.querySelectorAll(".line-row").length <= 1) return;
+      const row = btn.closest(".line-row");
+      row.remove();
+      // Renumber
+      container.querySelectorAll(".line-row").forEach((r, i) => {
+        r.querySelector("label").textContent = i + 1;
       });
     }
 
     async function saveAll() {
       const date = document.getElementById("pointage-date").value;
-      const rows = document.querySelectorAll("#tbody tr");
-      let count = 0;
+      const lines = [];
 
-      for (const tr of rows) {
-        const salId = parseInt(tr.dataset.salarieId);
-        const cb = tr.querySelector(".row-cb");
-        if (!cb.checked) continue;
+      document.querySelectorAll(".sal-block").forEach(block => {
+        const salId = parseInt(block.dataset.salId);
+        const desactive = block.querySelector(".desactive-cb").checked;
+        if (desactive) return;
 
-        const fullDay = tr.querySelector(".full-day-cb").checked;
-        const absent = tr.querySelector(".absent-cb").checked;
-        const chantId = tr.querySelector(".chantier-sel").value;
-        let arr = tr.querySelector(".arr").value;
-        let dep = tr.querySelector(".dep").value;
-        const motif = tr.querySelector(".motif").value;
+        block.querySelectorAll(".line-row").forEach(row => {
+          const fullDay = row.querySelector(".full-day-cb").checked;
+          const absent = row.querySelector(".absent-cb").checked;
+          const chantId = row.querySelector(".chantier-sel").value;
+          const motif = row.querySelector(".motif").value;
+          let arr = row.querySelector(".arr").value;
+          let dep = row.querySelector(".dep").value;
 
-        if (absent) {
-          // Save as absence
-          await fetch("/api/pointages", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ salarie_id: salId, chantier_id: null, date, heure_arrivee: null, heure_depart: null, type: "manuel", motif_absence: motif })
-          });
-        } else if (chantId) {
-          if (fullDay) {
-            const d = new Date(date);
-            arr = "08:00";
-            dep = d.getDay() === 5 ? "16:00" : "17:00";
+          if (absent) {
+            lines.push({ salarie_id: salId, chantier_id: null, heure_arrivee: null, heure_depart: null, motif_absence: motif, type: "manuel" });
+          } else if (chantId) {
+            if (fullDay || (!arr && !dep)) {
+              const isFri = new Date(date).getDay() === 5;
+              arr = "08:00";
+              dep = isFri ? "16:00" : "17:00";
+            }
+            lines.push({ salarie_id: salId, chantier_id: parseInt(chantId), heure_arrivee: arr, heure_depart: dep, motif_absence: null, type: "manuel" });
           }
-          await fetch("/api/pointages", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ salarie_id: salId, chantier_id: parseInt(chantId), date, heure_arrivee: arr || null, heure_depart: dep || null, type: "manuel" })
-          });
-        }
-        count++;
+        });
+      });
+
+      if (lines.length === 0) {
+        document.getElementById("msg").textContent = "Rien à sauvegarder (tout est décoché ou désactivé)";
+        document.getElementById("msg").classList.remove("hidden");
+        setTimeout(() => document.getElementById("msg").classList.add("hidden"), 3000);
+        return;
       }
 
+      await fetch("/api/pointages/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date, lines })
+      });
+
       const msgEl = document.getElementById("msg");
-      msgEl.textContent = `${count} ligne(s) sauvegardée(s) ✅`;
+      msgEl.textContent = `${lines.length} ligne(s) sauvegardée(s) ✅`;
       msgEl.classList.remove("hidden");
       setTimeout(() => msgEl.classList.add("hidden"), 3000);
-
-      // Reload
       loadForDate(date);
     }
 
     function openGenModal() { document.getElementById("gen-modal").classList.remove("hidden"); }
-    function closeGenModal() {
-      document.getElementById("gen-modal").classList.add("hidden");
-      document.getElementById("g-result").classList.add("hidden");
-    }
+    function closeGenModal() { document.getElementById("gen-modal").classList.add("hidden"); document.getElementById("g-result").classList.add("hidden"); }
 
     async function doGenerate() {
-      const from = document.getElementById("g-from").value;
-      const to = document.getElementById("g-to").value;
+      const from = document.getElementById("g-from").value, to = document.getElementById("g-to").value;
       if (!from || !to) return;
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ from, to })
-      });
+      const res = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from, to }) });
       const data = await res.json();
       const r = document.getElementById("g-result");
       r.textContent = data.message || "Fait !";
@@ -285,8 +327,7 @@
       setTimeout(closeGenModal, 1500);
     }
 
-    document.getElementById("pointage-date").addEventListener("change", (e) => loadForDate(e.target.value));
-
+    document.getElementById("pointage-date").addEventListener("change", e => loadForDate(e.target.value));
     load();
   </script>
 </body>

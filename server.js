@@ -133,13 +133,26 @@ app.get("/api/pointages", (req, res) => {
 
 app.post("/api/pointages", (req, res) => {
   const { salarie_id, chantier_id, date, heure_arrivee, heure_depart, type, commentaire, motif_absence } = req.body;
-  const existing = getPointageForSalarieDate.get(salarie_id, date);
-  if (existing) {
-    updatePointage.run(chantier_id, heure_arrivee, heure_depart, commentaire, motif_absence, existing.id);
-    return res.json({ id: existing.id, updated: true });
-  }
   const result = createPointage.run(salarie_id, chantier_id, date, heure_arrivee || null, heure_depart || null, type || "manuel", commentaire || "", motif_absence || null);
   res.json({ id: result.lastInsertRowid });
+});
+
+// Bulk: delete all pointages for salarie+date, then save new ones
+app.post("/api/pointages/bulk", (req, res) => {
+  const { date, lines } = req.body;
+  // lines: [{salarie_id, chantier_id, heure_arrivee, heure_depart, motif_absence}, ...]
+  const tx = db.transaction(() => {
+    // Delete all for this date
+    for (const line of lines) {
+      db.prepare("DELETE FROM pointages WHERE salarie_id = ? AND date = ?").run(line.salarie_id, date);
+    }
+    // Insert new
+    for (const line of lines) {
+      createPointage.run(line.salarie_id, line.chantier_id || null, date, line.heure_arrivee || null, line.heure_depart || null, line.type || "manuel", line.commentaire || "", line.motif_absence || null);
+    }
+  });
+  tx();
+  res.json({ saved: lines.length });
 });
 
 app.put("/api/pointages/:id", (req, res) => {

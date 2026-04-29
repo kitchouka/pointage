@@ -50,7 +50,6 @@ CREATE TABLE IF NOT EXISTS pointages (
   type TEXT DEFAULT 'auto',
   commentaire TEXT,
   motif_absence TEXT,
-  CONSTRAINT uk_pointage UNIQUE(salarie_id, date),
   FOREIGN KEY (salarie_id) REFERENCES salaries(id),
   FOREIGN KEY (chantier_id) REFERENCES chantiers(id)
 );
