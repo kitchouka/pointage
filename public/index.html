@@ -24,11 +24,10 @@
   </nav>
 
   <div class="max-w-7xl mx-auto px-4 py-6">
-    <!-- Header -->
     <div class="flex items-center justify-between mb-6">
       <div>
         <h1 class="text-2xl font-bold">📋 Pointage du jour</h1>
-        <p class="text-xs text-gray-500 mt-1">Un salarié peut avoir plusieurs lignes (ex: matin chantier A, aprem absence).</p>
+        <p class="text-xs text-gray-500 mt-1">Affecter chaque salarié à un chantier ou en absence.</p>
       </div>
       <div class="flex gap-2 items-center">
         <input type="date" id="pointage-date" class="border rounded-lg px-3 py-2 text-sm">
@@ -37,36 +36,26 @@
       </div>
     </div>
 
-    <!-- Alertes -->
     <div id="alertes-bar" class="hidden mb-4"></div>
-
-    <!-- Grille par salarié -->
     <div id="salarie-grid" class="space-y-3"></div>
-
-    <div id="msg" class="mt-4 text-sm text-green-600 hidden font-medium"></div>
+    <div id="msg" class="mt-4 text-sm font-medium hidden"></div>
   </div>
 
   <!-- Modal Génération -->
   <div id="gen-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
     <div class="bg-white rounded-xl p-6 w-96">
       <h2 class="text-lg font-bold mb-4">⚡ Affecter un salarié à un chantier</h2>
-      <p class="text-xs text-gray-500 mb-4">Génère les pointages 8h-17h (Lun-Jeu) ou 8h-16h (Ven) pour la période choisie.</p>
+      <p class="text-xs text-gray-500 mb-4">Génère les pointages automatiques (8h-17h Lun-Jeu, 8h-16h Ven).</p>
       <div class="space-y-3">
-        <label class="text-sm block">
-          <span class="text-gray-500">Salarié</span>
+        <label class="text-sm block"><span class="text-gray-500">Salarié</span>
           <select id="g-sal" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm"></select>
         </label>
-        <label class="text-sm block">
-          <span class="text-gray-500">Chantier</span>
+        <label class="text-sm block"><span class="text-gray-500">Chantier</span>
           <select id="g-chan" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm"></select>
         </label>
         <div class="flex gap-3">
-          <label class="flex-1 text-sm"><span class="text-gray-500">Du</span>
-            <input type="date" id="g-from" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm">
-          </label>
-          <label class="flex-1 text-sm"><span class="text-gray-500">Au</span>
-            <input type="date" id="g-to" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm">
-          </label>
+          <label class="flex-1 text-sm"><span class="text-gray-500">Du</span><input type="date" id="g-from" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm"></label>
+          <label class="flex-1 text-sm"><span class="text-gray-500">Au</span><input type="date" id="g-to" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm"></label>
         </div>
       </div>
       <div class="flex gap-2 justify-end mt-5">
@@ -92,7 +81,6 @@
         fetch("/api/salaries").then(r=>r.json()),
         fetch("/api/chantiers").then(r=>r.json())
       ]);
-      // Populate modal selects
       document.getElementById("g-sal").innerHTML = allSal.map(s => `<option value="${s.id}">${s.nom} ${s.prenom}</option>`).join("");
       document.getElementById("g-chan").innerHTML = allChan.map(c => `<option value="${c.id}">${c.nom}</option>`).join("");
       loadForDate(document.getElementById("pointage-date").value);
@@ -104,21 +92,34 @@
         fetch(`/api/pointages?date=${date}`).then(r=>r.json()),
         fetch(`/api/alertes?date=${date}`).then(r=>r.json())
       ]);
-
       const abar = document.getElementById("alertes-bar");
       if (alers.length > 0) {
         abar.classList.remove("hidden");
         abar.innerHTML = alers.map(a => `<div class="bg-amber-50 border-l-4 border-amber-400 px-4 py-2 text-sm">${a.type === "double_affectation" ? "🔴" : "🟡"} ${a.message}</div>`).join("");
       } else abar.classList.add("hidden");
-
-      render(pts);
+      render(pts, date);
     }
 
-    function render(pointages) {
+    function getMaxHours(dateStr) {
+      return new Date(dateStr).getDay() === 5 ? 7 : 8;
+    }
+
+    function defaultHours(dateStr) {
+      return new Date(dateStr).getDay() === 5 ? "16:00" : "17:00";
+    }
+
+    function calcMinutes(arr, dep) {
+      if (!arr || !dep) return 0;
+      const [ah, am] = arr.split(":").map(Number);
+      const [dh, dm] = dep.split(":").map(Number);
+      return (dh * 60 + dm) - (ah * 60 + am);
+    }
+
+    function render(pointages, date) {
       const grid = document.getElementById("salarie-grid");
       grid.innerHTML = "";
+      const maxH = getMaxHours(date);
 
-      // Group by salarie_id
       const bySal = {};
       pointages.forEach(p => {
         if (!bySal[p.salarie_id]) bySal[p.salarie_id] = [];
@@ -127,61 +128,48 @@
 
       for (const s of allSal) {
         const pts = bySal[s.id] || [];
-        if (pts.length === 0) pts.push({}); // empty row
+        if (pts.length === 0) pts.push({});
 
         const block = document.createElement("div");
         block.className = "sal-block bg-white rounded-xl shadow overflow-hidden";
         block.dataset.salId = s.id;
 
-        // Header with employee name + add line button
         const head = document.createElement("div");
         head.className = "bg-gray-50 px-4 py-2 flex items-center justify-between border-b";
-        head.innerHTML = `<span class="font-semibold text-sm">${s.nom} ${s.prenom}</span>
-          <button onclick="addLine(this, ${s.id})" class="text-blue-600 text-xs border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50">+ Ligne</button>`;
+        head.innerHTML = `<span class="font-semibold text-sm">${s.nom} ${s.prenom}</span><button onclick="addLine(this, ${s.id})" class="text-blue-600 text-xs border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50">+ Ligne</button>`;
         block.appendChild(head);
 
-        // Lines container
         const linesDiv = document.createElement("div");
-        linesDiv.className = "lines-container";
+        linesDiv.className = "lines-c";
         linesDiv.dataset.salId = s.id;
 
         pts.forEach((pt, idx) => {
-          const hasFullDay = pt.heure_arrivee === "08:00" && (pt.heure_depart === "17:00" || pt.heure_depart === "16:00");
-          const dateStr = document.getElementById("pointage-date").value;
-          const isFriday = new Date(dateStr).getDay() === 5;
+          const isFull = pt.heure_arrivee === "08:00" && (pt.heure_depart === "17:00" || pt.heure_depart === "16:00");
+          const chanOpts = allChan.map(c => `<option value="${c.id}" ${String(pt.chantier_id) == String(c.id) ? 'selected' : ''}>${c.nom}</option>`).join("");
+          const isAbs = !!pt.motif_absence;
+          const delVis = pts.length > 1;
 
-          const line = document.createElement("div");
-          line.className = "line-row flex items-center gap-2 px-4 py-2 " + (idx % 2 === 0 ? "bg-white" : "bg-gray-50/50");
-
-          const delVisible = pts.length > 1;
-          line.innerHTML = `
-            <label class="text-xs text-gray-400 w-4">${idx+1}</label>
-            <label class="flex items-center gap-1 text-xs text-gray-600" title="Journée complète 8h-17h">
-              <input type="checkbox" class="toggle full-day-cb" ${hasFullDay ? 'checked' : ''}> J
-            </label>
-            <input type="time" class="border rounded px-2 py-1 text-sm w-22 arr" value="${pt.heure_arrivee || ""}" ${hasFullDay ? 'disabled' : ''}>
-            <input type="time" class="border rounded px-2 py-1 text-sm w-22 dep" value="${pt.heure_depart || ""}" ${hasFullDay ? 'disabled' : ''}>
-            <select class="border rounded px-2 py-1 text-sm w-36 chantier-sel">
-              <option value="">-- Chantier --</option>
-              ${allChan.map(c => `<option value="${c.id}" ${String(pt.chantier_id) == String(c.id) ? 'selected' : ''}>${c.nom}</option>`).join("")}
-            </select>
-            <label class="flex items-center gap-1 text-xs text-red-600" title="Absent">
-              <input type="checkbox" class="toggle absent-cb" ${pt.motif_absence ? 'checked' : ''}> Abs
-            </label>
-            <input type="text" class="border rounded px-2 py-1 text-sm w-24 motif" placeholder="Motif" value="${pt.motif_absence || ""}" ${pt.motif_absence ? '' : 'disabled'}>
-            <button onclick="delLine(this)" class="text-red-400 text-xs hover:text-red-600 ${delVisible ? '' : 'invisible'}">✕</button>
-          `;
-          linesDiv.appendChild(line);
+          linesDiv.innerHTML += `
+            <div class="line-row flex items-center gap-2 px-4 py-2 ${idx%2?'bg-gray-50/50':'bg-white'}">
+              <label class="text-xs text-gray-400 w-4">${idx+1}</label>
+              <label class="flex items-center gap-1 text-xs text-gray-600"><input type="checkbox" class="toggle full-day-cb" ${isFull?'checked':''}> J (${maxH}h)</label>
+              <input type="time" class="border rounded px-2 py-1 text-sm w-22 arr" value="${pt.heure_arrivee||''}" ${isFull?'disabled':''}>
+              <input type="time" class="border rounded px-2 py-1 text-sm w-22 dep" value="${pt.heure_depart||''}" ${isFull?'disabled':''}>
+              <select class="border rounded px-2 py-1 text-sm w-40 affect-sel">
+                <option value="">-- Affectation --</option>
+                ${chanOpts}
+                <option value="absence" ${isAbs?'selected':''}>🚫 Absence</option>
+              </select>
+              <input type="text" class="border rounded px-2 py-1 text-sm w-28 motif" placeholder="Motif" value="${pt.motif_absence||''}" style="${isAbs?'':'display:none'}">
+              <button onclick="delLine(this)" class="text-red-400 text-xs hover:text-red-600 ${delVis?'':'hidden'}">✕</button>
+            </div>`;
         });
-
         block.appendChild(linesDiv);
 
-        // Bottom actions: checkbox "Absent toute la journée" etc.
         const bottom = document.createElement("div");
-        bottom.className = "px-4 py-1.5 border-t bg-gray-50/30 flex gap-4 items-center text-xs text-gray-500";
-        bottom.innerHTML = `<label class="flex items-center gap-1.5 text-xs text-gray-500"><input type="checkbox" class="toggle desactive-cb"> Désactivé (pas de pointage ce jour)</label>`;
+        bottom.className = "px-4 py-1.5 border-t bg-gray-50/30";
+        bottom.innerHTML = `<label class="flex items-center gap-1.5 text-xs text-gray-500"><input type="checkbox" class="toggle desactive-cb"> Désactivé ce jour</label>`;
         block.appendChild(bottom);
-
         grid.appendChild(block);
       }
 
@@ -189,190 +177,106 @@
       document.querySelectorAll(".full-day-cb").forEach(cb => {
         cb.addEventListener("change", e => {
           const row = e.target.closest(".line-row");
-          const arr = row.querySelector(".arr");
-          const dep = row.querySelector(".dep");
-          const date = document.getElementById("pointage-date").value;
-          const isFri = new Date(date).getDay() === 5;
-          if (e.target.checked) {
-            arr.value = "08:00";
-            dep.value = isFri ? "16:00" : "17:00";
-            arr.disabled = true; dep.disabled = true;
-          } else {
-            arr.disabled = false; dep.disabled = false;
-          }
+          const arr = row.querySelector(".arr"), dep = row.querySelector(".dep");
+          if (e.target.checked) { arr.value = "08:00"; dep.value = defaultHours(date); arr.disabled = true; dep.disabled = true; }
+          else { arr.disabled = false; dep.disabled = false; }
         });
       });
-
-      document.querySelectorAll(".absent-cb").forEach(cb => {
-        cb.addEventListener("change", e => {
+      document.querySelectorAll(".affect-sel").forEach(sel => {
+        sel.addEventListener("change", e => {
           const row = e.target.closest(".line-row");
           const motif = row.querySelector(".motif");
-          const fullCb = row.querySelector(".full-day-cb");
-          const arr = row.querySelector(".arr");
-          const dep = row.querySelector(".dep");
-          if (e.target.checked) {
-            motif.disabled = false; motif.focus();
-            fullCb.checked = false; fullCb.disabled = true;
-            arr.disabled = true; dep.disabled = true;
-            arr.value = ""; dep.value = "";
-          } else {
-            motif.disabled = true; motif.value = "";
-            fullCb.disabled = false;
-            arr.disabled = false; dep.disabled = false;
-          }
+          motif.style.display = e.target.value === "absence" ? "" : "none";
+          if (e.target.value !== "absence") { motif.value = ""; }
         });
       });
     }
 
     function addLine(btn, salId) {
-      const container = btn.closest(".sal-block").querySelector(".lines-container");
+      const container = btn.closest(".sal-block").querySelector(".lines-c");
       const cnt = container.querySelectorAll(".line-row").length + 1;
       const date = document.getElementById("pointage-date").value;
-      const isFri = new Date(date).getDay() === 5;
-      const line = document.createElement("div");
-      line.className = "line-row flex items-center gap-2 px-4 py-2 bg-gray-50/50";
-      line.innerHTML = `
+      const div = document.createElement("div");
+      div.className = "line-row flex items-center gap-2 px-4 py-2 bg-gray-50/50";
+      div.innerHTML = `
         <label class="text-xs text-gray-400 w-4">${cnt}</label>
-        <label class="flex items-center gap-1 text-xs text-gray-600" title="Journée complète 8h-17h">
-          <input type="checkbox" class="toggle full-day-cb"> J
-        </label>
+        <label class="flex items-center gap-1 text-xs text-gray-600"><input type="checkbox" class="toggle full-day-cb"> J (${getMaxHours(date)}h)</label>
         <input type="time" class="border rounded px-2 py-1 text-sm w-22 arr">
         <input type="time" class="border rounded px-2 py-1 text-sm w-22 dep">
-        <select class="border rounded px-2 py-1 text-sm w-36 chantier-sel"><option value="">-- Chantier --</option>
+        <select class="border rounded px-2 py-1 text-sm w-40 affect-sel">
+          <option value="">-- Affectation --</option>
           ${allChan.map(c => `<option value="${c.id}">${c.nom}</option>`).join("")}
+          <option value="absence">🚫 Absence</option>
         </select>
-        <label class="flex items-center gap-1 text-xs text-red-600" title="Absent">
-          <input type="checkbox" class="toggle absent-cb"> Abs
-        </label>
-        <input type="text" class="border rounded px-2 py-1 text-sm w-24 motif" placeholder="Motif" disabled>
-        <button onclick="delLine(this)" class="text-red-400 text-xs hover:text-red-600">✕</button>
-      `;
-      container.appendChild(line);
-
-      // Wire up events for new line
-      const fullCb = line.querySelector(".full-day-cb");
-      fullCb.addEventListener("change", e => {
-        const arr = line.querySelector(".arr"), dep = line.querySelector(".dep");
-        if (e.target.checked) {
-          arr.value = "08:00"; dep.value = isFri ? "16:00" : "17:00";
-          arr.disabled = true; dep.disabled = true;
-        } else { arr.disabled = false; dep.disabled = false; }
+        <input type="text" class="border rounded px-2 py-1 text-sm w-28 motif" placeholder="Motif" style="display:none">
+        <button onclick="delLine(this)" class="text-red-400 text-xs hover:text-red-600">✕</button>`;
+      container.appendChild(div);
+      div.querySelector(".full-day-cb").addEventListener("change", e => {
+        const arr = div.querySelector(".arr"), dep = div.querySelector(".dep");
+        if (e.target.checked) { arr.value = "08:00"; dep.value = defaultHours(date); arr.disabled = true; dep.disabled = true; }
+        else { arr.disabled = false; dep.disabled = false; }
       });
-      line.querySelector(".absent-cb").addEventListener("change", e => {
-        const motif = line.querySelector(".motif"), fullCb = line.querySelector(".full-day-cb");
-        const arr = line.querySelector(".arr"), dep = line.querySelector(".dep");
-        if (e.target.checked) {
-          motif.disabled = false;
-          fullCb.checked = false; fullCb.disabled = true;
-          arr.disabled = true; dep.disabled = true;
-          arr.value = ""; dep.value = "";
-        } else {
-          motif.disabled = true; motif.value = "";
-          fullCb.disabled = false;
-          arr.disabled = false; dep.disabled = false;
-        }
+      div.querySelector(".affect-sel").addEventListener("change", e => {
+        const motif = div.querySelector(".motif");
+        motif.style.display = e.target.value === "absence" ? "" : "none";
+        if (e.target.value !== "absence") motif.value = "";
       });
     }
 
     function delLine(btn) {
-      const container = btn.closest(".lines-container");
+      const container = btn.closest(".lines-c");
       if (container.querySelectorAll(".line-row").length <= 1) return;
-      const row = btn.closest(".line-row");
-      row.remove();
-      // Renumber + toggle del buttons visibility
-      const rows = container.querySelectorAll(".line-row");
-      rows.forEach((r, i) => {
-        r.querySelector("label:first-child").textContent = i + 1;
-        const delBtn = r.querySelector("button");
-        if (delBtn) {
-          delBtn.classList.toggle("invisible", rows.length === 1);
-        }
-      });
+      btn.closest(".line-row").remove();
+      container.querySelectorAll(".line-row").forEach((r, i) => { r.querySelector("label:first-child").textContent = i + 1; });
     }
 
     async function saveAll() {
       const date = document.getElementById("pointage-date").value;
-      const lines = [];
-      const errors = [];
-      const isFri = new Date(date).getDay() === 5;
-      const expectedHours = isFri ? 7 : 8;
+      const lines = [], errors = [];
+      const maxH = getMaxHours(date);
 
       document.querySelectorAll(".sal-block").forEach(block => {
         const salId = parseInt(block.dataset.salId);
-        const salName = block.querySelector(".font-semibold").textContent.trim();
-        const desactive = block.querySelector(".desactive-cb").checked;
-        if (desactive) return;
+        const name = block.querySelector(".font-semibold").textContent.trim();
+        if (block.querySelector(".desactive-cb").checked) return;
 
-        let totalMinutes = 0;
-        let hasAbsence = false;
-        let hasChantier = false;
-        const empLines = [];
+        let totalMin = 0, hasAbs = false, hasWork = false;
 
         block.querySelectorAll(".line-row").forEach(row => {
-          const fullDay = row.querySelector(".full-day-cb").checked;
-          const absent = row.querySelector(".absent-cb").checked;
-          const chantId = row.querySelector(".chantier-sel").value;
+          const full = row.querySelector(".full-day-cb").checked;
+          const affect = row.querySelector(".affect-sel").value;
           const motif = row.querySelector(".motif").value;
-          let arr = row.querySelector(".arr").value;
-          let dep = row.querySelector(".dep").value;
+          let arr = row.querySelector(".arr").value, dep = row.querySelector(".dep").value;
 
-          if (absent) {
-            hasAbsence = true;
-            empLines.push({
-              salarie_id: salId, chantier_id: null,
-              heure_arrivee: null, heure_depart: null,
-              motif_absence: motif || "Absence", type: "manuel"
-            });
+          if (affect === "absence") {
+            hasAbs = true;
+            lines.push({ salarie_id: salId, chantier_id: null, heure_arrivee: null, heure_depart: null, motif_absence: motif || "Absence", type: "manuel" });
             return;
           }
 
-          if (chantId) {
-            hasChantier = true;
-            if (fullDay || (!arr && !dep)) {
-              arr = "08:00";
-              dep = isFri ? "16:00" : "17:00";
-            }
-            if (arr && dep) {
-              const [ah, am] = arr.split(":").map(Number);
-              const [dh, dm] = dep.split(":").map(Number);
-              totalMinutes += (dh * 60 + dm) - (ah * 60 + am);
-            }
-            empLines.push({
-              salarie_id: salId, chantier_id: parseInt(chantId),
-              heure_arrivee: arr, heure_depart: dep,
-              motif_absence: null, type: "manuel"
-            });
+          if (affect) {
+            hasWork = true;
+            if (full || (!arr && !dep)) { arr = "08:00"; dep = defaultHours(date); }
+            totalMin += calcMinutes(arr, dep);
+            lines.push({ salarie_id: salId, chantier_id: parseInt(affect), heure_arrivee: arr, heure_depart: dep, motif_absence: null, type: "manuel" });
           }
         });
 
-        // Cohérence
-        if (!hasAbsence && !hasChantier) {
-          errors.push(`⚠️ ${salName} : aucune saisie (ni chantier ni absence)`);
-          return;
-        }
-
-        const totalHours = totalMinutes / 60;
-        if (!hasAbsence && Math.abs(totalHours - expectedHours) > 0.5) {
-          errors.push(`⚠️ ${salName} : ${totalHours.toFixed(1)}h au lieu de ${expectedHours}h (${isFri ? 'vendredi' : 'lun-jeu'})`);
-          return;
-        }
-
-        lines.push(...empLines);
+        if (!hasAbs && !hasWork) { errors.push(`⚠️ ${name} : aucune saisie`); }
+        else if (!hasAbs && Math.abs(totalMin/60 - maxH) > 0.5) { errors.push(`⚠️ ${name} : ${(totalMin/60).toFixed(1)}h au lieu de ${maxH}h`); }
       });
 
+      const msgEl = document.getElementById("msg");
       if (errors.length > 0) {
-        const msgEl = document.getElementById("msg");
         msgEl.innerHTML = errors.join("<br>");
         msgEl.className = "mt-4 text-sm text-red-600 font-medium";
         msgEl.classList.remove("hidden");
         setTimeout(() => msgEl.classList.add("hidden"), 5000);
         return;
       }
-
       if (lines.length === 0) {
-        const msgEl = document.getElementById("msg");
-        msgEl.textContent = "Rien à sauvegarder (tout est désactivé)";
-        msgEl.className = "mt-4 text-sm text-orange-600 font-medium";
+        msgEl.textContent = "Rien à sauvegarder";
+        msgEl.className = "mt-4 text-sm text-gray-500 font-medium";
         msgEl.classList.remove("hidden");
         setTimeout(() => msgEl.classList.add("hidden"), 3000);
         return;
@@ -383,8 +287,6 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date, lines })
       });
-
-      const msgEl = document.getElementById("msg");
       msgEl.textContent = `${lines.length} ligne(s) sauvegardée(s) ✅`;
       msgEl.className = "mt-4 text-sm text-green-600 font-medium";
       msgEl.classList.remove("hidden");
@@ -394,21 +296,14 @@
 
     function openGenModal() { document.getElementById("gen-modal").classList.remove("hidden"); }
     function closeGenModal() { document.getElementById("gen-modal").classList.add("hidden"); document.getElementById("g-result").classList.add("hidden"); }
-
     async function doGenerate() {
-      const salId = document.getElementById("g-sal").value;
-      const chanId = document.getElementById("g-chan").value;
+      const sal = document.getElementById("g-sal").value, chan = document.getElementById("g-chan").value;
       const from = document.getElementById("g-from").value, to = document.getElementById("g-to").value;
-      if (!salId || !chanId || !from || !to) return alert("Choisis un salarié, un chantier et une période");
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ salarie_id: parseInt(salId), chantier_id: parseInt(chanId), from, to })
-      });
+      if (!sal || !chan || !from || !to) return alert("Remplis tous les champs");
+      const res = await fetch("/api/generate", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({salarie_id:parseInt(sal),chantier_id:parseInt(chan),from,to})});
       const data = await res.json();
       const r = document.getElementById("g-result");
-      r.textContent = data.message || "Fait !";
-      r.classList.remove("hidden");
+      r.textContent = data.message || "Fait !"; r.classList.remove("hidden");
       setTimeout(() => { closeGenModal(); loadForDate(document.getElementById("pointage-date").value); }, 2000);
     }
 
