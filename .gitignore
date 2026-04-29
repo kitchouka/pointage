@@ -1,0 +1,5 @@
+node_modules/
+pointage.db
+*.db-shm
+*.db-wal
+.env

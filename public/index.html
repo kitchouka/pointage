@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pointage Chantiers</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .nav-active { border-bottom: 2px solid #3b82f6; color: #3b82f6; font-weight: 600; }
+    table th { position: sticky; top: 0; background: #f8fafc; z-index: 1; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <!-- Navigation -->
+  <nav class="bg-white shadow-sm border-b">
+    <div class="max-w-7xl mx-auto px-4 py-2 flex gap-4 text-sm">
+      <a href="index.html" id="nav-pointage" class="py-3 px-2 nav-active">📋 Pointage</a>
+      <a href="chantiers.html" class="py-3 px-2 hover:text-blue-600">🏗️ Chantiers</a>
+      <a href="salaires.html" class="py-3 px-2 hover:text-blue-600">👷 Salariés</a>
+      <a href="calendrier.html" class="py-3 px-2 hover:text-blue-600">📅 Calendrier</a>
+      <a href="affectations.html" class="py-3 px-2 hover:text-blue-600">📝 Affectations</a>
+      <a href="rapports.html" class="py-3 px-2 hover:text-blue-600">📊 Rapports</a>
+      <a href="financier.html" class="py-3 px-2 hover:text-blue-600">💰 Financier</a>
+    </div>
+  </nav>
+
+  <div class="max-w-7xl mx-auto px-4 py-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-gray-800">📋 Pointage du jour</h1>
+      <div class="flex gap-2 items-center">
+        <input type="date" id="pointage-date" class="border rounded-lg px-3 py-2">
+        <button onclick="loadPointages()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">Charger</button>
+        <button onclick="openGenerateModal()" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700">Générer pointages</button>
+      </div>
+    </div>
+
+    <!-- Alertes -->
+    <div id="alertes-bar" class="hidden mb-4"></div>
+
+    <!-- Tableau de pointage -->
+    <div class="bg-white rounded-xl shadow overflow-x-auto">
+      <table class="min-w-full text-sm" id="pointage-table">
+        <thead>
+          <tr class="border-b">
+            <th class="text-left p-3 font-medium text-gray-600">Salarié</th>
+            <th class="text-left p-3 font-medium text-gray-600">Heure Arrivée</th>
+            <th class="text-left p-3 font-medium text-gray-600">Heure Départ</th>
+            <th class="text-left p-3 font-medium text-gray-600">Chantier</th>
+            <th class="text-left p-3 font-medium text-gray-600">Motif absence</th>
+            <th class="text-center p-3 font-medium text-gray-600">Action</th>
+          </tr>
+        </thead>
+        <tbody id="pointage-tbody">
+          <tr><td colspan="6" class="p-6 text-center text-gray-400">Sélectionnez une date et cliquez sur "Charger"</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Modal Génération -->
+  <div id="generate-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+    <div class="bg-white rounded-xl p-6 w-96">
+      <h2 class="text-lg font-bold mb-4">Générer les pointages automatiques</h2>
+      <div class="space-y-4">
+        <label class="block text-sm">
+          <span class="text-gray-700">Du</span>
+          <input type="date" id="gen-from" class="mt-1 w-full border rounded-lg px-3 py-2">
+        </label>
+        <label class="block text-sm">
+          <span class="text-gray-700">Au</span>
+          <input type="date" id="gen-to" class="mt-1 w-full border rounded-lg px-3 py-2">
+        </label>
+      </div>
+      <div class="mt-5 flex gap-2 justify-end">
+        <button onclick="closeGenerateModal()" class="px-4 py-2 text-sm border rounded-lg">Annuler</button>
+        <button onclick="generatePointages()" class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg">Générer</button>
+      </div>
+      <p id="gen-result" class="mt-3 text-sm text-green-600 hidden"></p>
+    </div>
+  </div>
+
+  <script>
+    // ---- Init date to today
+    const today = new Date();
+    const dateStr = (d) => d.toISOString().split("T")[0];
+    document.getElementById("pointage-date").value = dateStr(today);
+    document.getElementById("gen-from").value = dateStr(today);
+    const nextFriday = new Date(today); nextFriday.setDate(today.getDate() + (5 - today.getDay()));
+    document.getElementById("gen-to").value = nextFriday > today ? dateStr(nextFriday) : dateStr(new Date(today.getTime() + 7 * 86400000));
+
+    let salaries = [];
+    let pointages = [];
+
+    async function loadSalaries() {
+      const res = await fetch("/api/salaries");
+      salaries = await res.json();
+    }
+
+    async function loadChantiers() {
+      const res = await fetch("/api/chantiers");
+      return await res.json();
+    }
+
+    async function loadPointages() {
+      const date = document.getElementById("pointage-date").value;
+      if (!date) return;
+
+      const [pres, cres, ares] = await Promise.all([
+        fetch(`/api/pointages?date=${date}`),
+        loadChantiers(),
+        fetch(`/api/alertes?date=${date}`)
+      ]);
+      pointages = await pres.json();
+      const chantiers = await cres;
+      const alertes = await ares;
+
+      // Display alertes
+      const abar = document.getElementById("alertes-bar");
+      if (alertes.length > 0) {
+        abar.classList.remove("hidden");
+        abar.innerHTML = alertes.map(a =>
+          `<div class="bg-amber-50 border-l-4 border-amber-400 px-4 py-2 mb-2 text-sm">${a.type === "double_affectation" ? "🔴" : "🟡"} ${a.message}</div>`
+        ).join("");
+      } else {
+        abar.classList.add("hidden");
+      }
+
+      // Build table
+      const tbody = document.getElementById("pointage-tbody");
+      tbody.innerHTML = "";
+
+      for (const sal of salaries) {
+        const ptg = pointages.find(p => p.salarie_id === sal.id) || {};
+        const tr = document.createElement("tr");
+        tr.className = "border-b hover:bg-gray-50";
+        const chantierOptions = chantiers.map(c =>
+          `<option value="${c.id}" ${String(ptg.chantier_id) == String(c.id) ? 'selected' : ''}>${c.nom}</option>`
+        ).join("");
+        const trHTML = `
+          <td class="p-3 font-medium">${sal.nom} ${sal.prenom}</td>
+          <td class="p-3"><input type="time" class="border rounded px-2 py-1 text-sm w-28 arr" data-sal="${sal.id}" value="${ptg.heure_arrivee || ""}"></td>
+          <td class="p-3"><input type="time" class="border rounded px-2 py-1 text-sm w-28 dep" data-sal="${sal.id}" value="${ptg.heure_depart || ""}"></td>
+          <td class="p-3"><select class="border rounded px-2 py-1 text-sm chantier-sel" data-sal="${sal.id}">
+            <option value="">-- Aucun --</option>
+            ${chantierOptions}
+          </select></td>
+          <td class="p-3"><input type="text" class="border rounded px-2 py-1 text-sm w-40 motif" data-sal="${sal.id}" placeholder="Maladie, congé..." value="${ptg.motif_absence || ""}"></td>
+          <td class="p-3 text-center">
+            <button onclick="savePointage(${sal.id})" class="bg-blue-600 text-white px-2 py-1 rounded text-xs font-medium hover:bg-blue-700">Sauv.</button>
+            ${ptg.id ? `<button onclick="deletePointage(${ptg.id})" class="ml-1 text-red-500 px-2 py-1 rounded text-xs hover:bg-red-50">✕</button>` : ""}
+          </td>
+        `;
+        tr.innerHTML = trHTML;
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function savePointage(salId) {
+      const date = document.getElementById("pointage-date").value;
+      const row = document.querySelector(`.arr[data-sal="${salId}"]`).closest("tr");
+      const chantier = row.querySelector(".chantier-sel").value;
+      const arr = row.querySelector(".arr").value;
+      const dep = row.querySelector(".dep").value;
+      const motif = row.querySelector(".motif").value;
+
+      await fetch("/api/pointages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ salarie_id: salId, chantier_id: chantier || null, date, heure_arrivee: arr, heure_depart: dep, type: "manuel", motif_absence: motif || null })
+      });
+      loadPointages();
+    }
+
+    async function deletePointage(id) {
+      if (!confirm("Supprimer ce pointage ?")) return;
+      await fetch(`/api/pointages/${id}`, { method: "DELETE" });
+      loadPointages();
+    }
+
+    function openGenerateModal() { document.getElementById("generate-modal").classList.remove("hidden"); }
+    function closeGenerateModal() { document.getElementById("generate-modal").classList.add("hidden"); document.getElementById("gen-result").classList.add("hidden"); }
+
+    async function generatePointages() {
+      const from = document.getElementById("gen-from").value;
+      const to = document.getElementById("gen-to").value;
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from, to })
+      });
+      const data = await res.json();
+      const result = document.getElementById("gen-result");
+      result.textContent = data.message || "Fait !";
+      result.classList.remove("hidden");
+      setTimeout(closeGenerateModal, 1500);
+    }
+
+    loadSalaries();
+  </script>
+</body>
+</html>

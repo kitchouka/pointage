@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Financier — Pointage Chantier</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <nav class="bg-white shadow-sm border-b">
+    <div class="max-w-7xl mx-auto px-4 py-2 flex gap-4 text-sm flex-wrap">
+      <a href="index.html" class="py-3 px-2 hover:text-blue-600">📋 Pointage</a>
+      <a href="chantiers.html" class="py-3 px-2 hover:text-blue-600">🏗️ Chantiers</a>
+      <a href="salaires.html" class="py-3 px-2 hover:text-blue-600">👷 Salariés</a>
+      <a href="calendrier.html" class="py-3 px-2 hover:text-blue-600">📅 Calendrier</a>
+      <a href="rapports.html" class="py-3 px-2 hover:text-blue-600">📊 Rapports</a>
+      <a href="financier.html" class="py-3 px-2 border-blue-500 border-b-2 text-blue-600 font-semibold">💰 Financier</a>
+    </div>
+  </nav>
+
+  <div class="max-w-5xl mx-auto px-4 py-6">
+    <h1 class="text-2xl font-bold mb-6">💰 Résultat financier par chantier</h1>
+
+    <!-- Select -->
+    <div class="flex gap-4 items-end bg-white rounded-xl shadow p-4 flex-wrap">
+      <label class="text-sm"><span class="text-gray-500">Chantier</span>
+        <select id="f-chan" class="mt-1 block border rounded-lg px-3 py-2 text-sm w-64"></select>
+      </label>
+      <label class="text-sm"><span class="text-gray-500">Mois</span>
+        <input type="month" id="f-mois" class="mt-1 block border rounded-lg px-3 py-2 text-sm">
+      </label>
+      <button onclick="loadFinancier()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 mt-auto">Afficher</button>
+    </div>
+
+    <!-- Résultat -->
+    <div id="resultat" class="mt-6 hidden">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="text-xs text-gray-500">Total heures</div>
+          <div id="r-heures" class="text-2xl font-bold text-gray-800 mt-1"></div>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="text-xs text-gray-500">Recette (PV horaire)</div>
+          <div id="r-recette" class="text-2xl font-bold text-blue-600 mt-1"></div>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="text-xs text-gray-500">Coût main d'œuvre</div>
+          <div id="r-mo" class="text-2xl font-bold text-orange-600 mt-1"></div>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="text-xs text-gray-500">Coûts matériaux</div>
+          <div id="r-mats" class="text-2xl font-bold text-red-600 mt-1"></div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl shadow p-4">
+        <div class="flex justify-between items-center">
+          <span class="text-lg font-semibold">Marge brute</span>
+          <span id="r-marge" class="text-3xl font-bold"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Matériaux du chantier -->
+    <div class="mt-8">
+      <h2 class="text-xl font-bold mb-4">📦 Coûts matériaux</h2>
+      <div class="flex gap-2 items-end bg-white rounded-xl shadow p-4">
+        <label class="text-sm"><span class="text-gray-500">Description</span>
+          <input id="m-desc" class="mt-1 block border rounded-lg px-3 py-2 text-sm w-48" placeholder="Ex: ciment, parpaings...">
+        </label>
+        <label class="text-sm"><span class="text-gray-500">Montant HT (€)</span>
+          <input id="m-montant" type="number" step="0.01" class="mt-1 block border rounded-lg px-3 py-2 text-sm w-32" placeholder="0.00">
+        </label>
+        <label class="text-sm"><span class="text-gray-500">Fournisseur</span>
+          <input id="m-fourn" class="mt-1 block border rounded-lg px-3 py-2 text-sm w-36" placeholder="Point.P, Gedimat...">
+        </label>
+        <input type="hidden" id="m-mois">
+        <button onclick="addMateriel()" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 mt-auto">+ Ajouter</button>
+      </div>
+
+      <div class="bg-white rounded-xl shadow overflow-x-auto mt-4">
+        <table class="min-w-full text-sm">
+          <thead><tr class="border-b"><th class="p-3 text-left text-gray-500">Description</th><th class="p-3 text-left text-gray-500">Montant HT</th><th class="p-3 text-left text-gray-500">Fournisseur</th><th class="p-3 text-left text-gray-500">Mois</th><th class="p-3"></th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentChantier = null;
+
+    async function loadChantiers() {
+      const res = await fetch("/api/chantiers");
+      const chantiers = await res.json();
+      document.getElementById("f-chan").innerHTML = chantiers.map(c => `<option value="${c.id}">${c.nom} — ${c.client||""}</option>`).join("");
+
+      // Init mois
+      const now = new Date();
+      const moisStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+      document.getElementById("f-mois").value = moisStr;
+      document.getElementById("m-mois").value = moisStr;
+
+      currentChantier = chantiers[0]?.id;
+      if (currentChantier) loadMateriaux();
+    }
+
+    async function loadFinancier() {
+      const chantId = document.getElementById("f-chan").value;
+      const mois = document.getElementById("f-mois").value;
+      currentChantier = chantId;
+      document.getElementById("m-mois").value = mois;
+      if (!chantId || !mois) return;
+
+      const res = await fetch(`/api/financier?chantier_id=${chantId}&mois=${mois}`);
+      const data = await res.json();
+
+      document.getElementById("resultat").classList.remove("hidden");
+      document.getElementById("r-heures").textContent = data.total_heures + "h";
+      document.getElementById("r-recette").textContent = parseFloat(data.recette).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+      document.getElementById("r-mo").textContent = parseFloat(data.cout_mo).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+      document.getElementById("r-mats").textContent = parseFloat(data.cout_materiaux).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+
+      const marge = parseFloat(data.marge);
+      const margeEl = document.getElementById("r-marge");
+      margeEl.textContent = marge.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+      margeEl.className = "text-3xl font-bold " + (marge >= 0 ? "text-green-600" : "text-red-600");
+
+      loadMateriaux();
+    }
+
+    async function loadMateriaux() {
+      if (!currentChantier) return;
+      const res = await fetch(`/api/materiaux/${currentChantier}`);
+      const mats = await res.json();
+      document.getElementById("tbody").innerHTML = mats.length === 0
+        ? `<tr><td class="p-4 text-gray-400 text-center" colspan="5">Aucun coût enregistré</td></tr>`
+        : mats.map(m => `
+          <tr class="border-b hover:bg-gray-50">
+            <td class="p-3">${m.description}</td>
+            <td class="p-3 font-medium">${m.montant_ht.toFixed(2)} €</td>
+            <td class="p-3">${m.fournisseur || ""}</td>
+            <td class="p-3">${m.mois}</td>
+            <td class="p-3 text-right"><button onclick="delMat(${m.id})" class="text-red-500 text-xs">✕</button></td>
+          </tr>`).join("");
+    }
+
+    async function addMateriel() {
+      const chantier_id = document.getElementById("f-chan").value;
+      const desc = document.getElementById("m-desc").value;
+      const montant = parseFloat(document.getElementById("m-montant").value);
+      const fourn = document.getElementById("m-fourn").value;
+      const mois = document.getElementById("m-mois").value;
+
+      if (!chantier_id || !desc || !montant) return;
+
+      await fetch("/api/materiaux", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chantier_id, mois, description: desc, montant_ht: montant, fournisseur: fourn })
+      });
+
+      document.getElementById("m-desc").value = "";
+      document.getElementById("m-montant").value = "";
+      document.getElementById("m-fourn").value = "";
+
+      loadFinancier();
+    }
+
+    async function delMat(id) {
+      await fetch(`/api/materiaux/${id}`, { method: "DELETE" });
+      loadFinancier();
+    }
+
+    loadChantiers();
+  </script>
+</body>
+</html>

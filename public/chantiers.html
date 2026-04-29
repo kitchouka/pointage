@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chantiers — Pointage Chantier</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <nav class="bg-white shadow-sm border-b">
+    <div class="max-w-7xl mx-auto px-4 py-2 flex gap-4 text-sm flex-wrap">
+      <a href="index.html" class="py-3 px-2 hover:text-blue-600">📋 Pointage</a>
+      <a href="chantiers.html" class="py-3 px-2 border-blue-500 border-b-2 text-blue-600 font-semibold">🏗️ Chantiers</a>
+      <a href="salaires.html" class="py-3 px-2 hover:text-blue-600">👷 Salariés</a>
+      <a href="calendrier.html" class="py-3 px-2 hover:text-blue-600">📅 Calendrier</a>
+      <a href="affectations.html" class="py-3 px-2 hover:text-blue-600">📝 Affectations</a>
+      <a href="rapports.html" class="py-3 px-2 hover:text-blue-600">📊 Rapports</a>
+      <a href="financier.html" class="py-3 px-2 hover:text-blue-600">💰 Financier</a>
+    </div>
+  </nav>
+
+  <div class="max-w-4xl mx-auto px-4 py-6">
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold">🏗️ Chantiers</h1>
+      <button onclick="openAdd()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">+ Nouveau</button>
+    </div>
+
+    <div class="bg-white rounded-xl shadow overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="border-b bg-gray-50">
+          <th class="p-3 text-left text-gray-600">Nom</th>
+          <th class="p-3 text-left text-gray-600">Client</th>
+          <th class="p-3 text-left text-gray-600">Adresse</th>
+          <th class="p-3 text-left text-gray-600">N° Chantier</th>
+          <th class="p-3 text-left text-gray-600">Début</th>
+          <th class="p-3 text-left text-gray-600">Fin</th>
+          <th class="p-3 text-left text-gray-600">PV horaire</th>
+          <th class="p-3 text-right text-gray-600">Actions</th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+    <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+      <h2 id="modal-title" class="text-lg font-bold mb-4">Nouveau chantier</h2>
+      <div class="space-y-3">
+        <input id="f-nom" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nom *">
+        <input id="f-client" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Client">
+        <input id="f-adresse" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Adresse">
+        <input id="f-num" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="N° chantier">
+        <div class="flex gap-3">
+          <input type="date" id="f-debut" class="flex-1 border rounded-lg px-3 py-2 text-sm">
+          <input type="date" id="f-fin" class="flex-1 border rounded-lg px-3 py-2 text-sm">
+        </div>
+        <input id="f-pv" type="number" step="0.01" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Prix de vente horaire (€)">
+      </div>
+      <div class="flex gap-2 justify-end mt-5">
+        <button onclick="closeModal()" class="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50">Annuler</button>
+        <button onclick="saveChantier()" class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let editingId = null;
+    let allChantiers = [];
+
+    async function load() {
+      const res = await fetch("/api/chantiers");
+      allChantiers = await res.json();
+      render();
+    }
+
+    function render() {
+      const tb = document.getElementById("tbody");
+      tb.innerHTML = "";
+      allChantiers.forEach(c => {
+        const tr = document.createElement("tr");
+        tr.className = "border-b hover:bg-gray-50";
+        tr.innerHTML = `
+          <td class="p-3 font-medium">${c.nom}</td>
+          <td class="p-3">${c.client || ""}</td>
+          <td class="p-3">${c.adresse || ""}</td>
+          <td class="p-3">${c.num_chantier || ""}</td>
+          <td class="p-3">${c.date_debut || ""}</td>
+          <td class="p-3">${c.date_fin || ""}</td>
+          <td class="p-3">${c.prix_vente_horaire ? c.prix_vente_horaire + " €" : "—"}</td>
+          <td class="p-3 text-right">
+            <button class="text-blue-600 text-xs mr-2" onclick="editChantier(${c.id})">Modifier</button>
+            <button class="text-red-500 text-xs" onclick="delChantier(${c.id})">Désactiver</button>
+          </td>`;
+        tb.appendChild(tr);
+      });
+    }
+
+    function openAdd() {
+      editingId = null;
+      document.getElementById("modal-title").textContent = "Nouveau chantier";
+      clear();
+      document.getElementById("modal").classList.remove("hidden");
+    }
+    function closeModal() { document.getElementById("modal").classList.add("hidden"); }
+    function clear() {
+      ["f-nom","f-client","f-adresse","f-num","f-debut","f-fin","f-pv"].forEach(i => document.getElementById(i).value = "");
+    }
+
+    function editChantier(id) {
+      const c = allChantiers.find(x => x.id === id);
+      if (!c) return;
+      editingId = id;
+      document.getElementById("modal-title").textContent = "Modifier chantier";
+      document.getElementById("f-nom").value = c.nom || "";
+      document.getElementById("f-client").value = c.client || "";
+      document.getElementById("f-adresse").value = c.adresse || "";
+      document.getElementById("f-num").value = c.num_chantier || "";
+      document.getElementById("f-debut").value = c.date_debut || "";
+      document.getElementById("f-fin").value = c.date_fin || "";
+      document.getElementById("f-pv").value = c.prix_vente_horaire || "";
+      document.getElementById("modal").classList.remove("hidden");
+    }
+
+    async function delChantier(id) {
+      if (!confirm("Désactiver ce chantier ?")) return;
+      await fetch("/api/chantiers/" + id, { method: "DELETE" });
+      load();
+    }
+
+    async function saveChantier() {
+      const body = {
+        nom: document.getElementById("f-nom").value,
+        client: document.getElementById("f-client").value,
+        adresse: document.getElementById("f-adresse").value,
+        num_chantier: document.getElementById("f-num").value,
+        date_debut: document.getElementById("f-debut").value,
+        date_fin: document.getElementById("f-fin").value,
+        prix_vente_horaire: parseFloat(document.getElementById("f-pv").value) || null
+      };
+      if (editingId) {
+        await fetch("/api/chantiers/" + editingId, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+      } else {
+        await fetch("/api/chantiers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+      }
+      closeModal();
+      load();
+    }
+
+    load();
+  </script>
+</body>
+</html>

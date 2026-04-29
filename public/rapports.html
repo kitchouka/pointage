@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rapports — Pointage Chantier</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <nav class="bg-white shadow-sm border-b">
+    <div class="max-w-7xl mx-auto px-4 py-2 flex gap-4 text-sm">
+      <a href="index.html" class="py-3 px-2 hover:text-blue-600">📋 Pointage</a>
+      <a href="chantiers.html" class="py-3 px-2 hover:text-blue-600">🏗️ Chantiers</a>
+      <a href="salaires.html" class="py-3 px-2 hover:text-blue-600">👷 Salariés</a>
+      <a href="calendrier.html" class="py-3 px-2 hover:text-blue-600">📅 Calendrier</a>
+      <a href="affectations.html" class="py-3 px-2 hover:text-blue-600">📝 Affectations</a>
+      <a href="rapports.html" class="py-3 px-2 border-blue-500 border-b-2 text-blue-600 font-semibold">📊 Rapports</a>
+      <a href="financier.html" class="py-3 px-2 hover:text-blue-600">💰 Financier</a>
+    </div>
+  </nav>
+
+  <div class="max-w-5xl mx-auto px-4 py-6">
+    <h1 class="text-2xl font-bold mb-6">📊 Rapports</h1>
+
+    <!-- Select mode -->
+    <div class="flex gap-4 mb-4">
+      <button id="btn-chantier" class="px-4 py-2 rounded-lg text-sm bg-blue-600 text-white" onclick="switchMode('chantier')">Par chantier</button>
+      <button id="btn-sal" class="px-4 py-2 rounded-lg text-sm bg-gray-200 text-gray-700" onclick="switchMode('salarie')">Par salarié</button>
+    </div>
+
+    <!-- Par chantier -->
+    <div id="panel-chantier">
+      <div class="flex gap-4 items-end mb-4 flex-wrap">
+        <label class="text-sm"><span class="text-gray-500">Chantier</span>
+          <select id="r-chan" class="mt-1 block border rounded-lg px-3 py-2 text-sm w-64"></select>
+        </label>
+        <label class="text-sm"><span class="text-gray-500">Du</span>
+          <input type="date" id="r-chan-from" class="mt-1 block border rounded-lg px-3 py-2 text-sm">
+        </label>
+        <label class="text-sm"><span class="text-gray-500">Au</span>
+          <input type="date" id="r-chan-to" class="mt-1 block border rounded-lg px-3 py-2 text-sm">
+        </label>
+        <button onclick="runChantier()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 mt-auto">Afficher</button>
+      </div>
+      <div class="bg-white rounded-xl shadow overflow-x-auto mt-4">
+        <table class="min-w-full text-sm"><thead><tr class="border-b"><th class="p-3 text-left text-gray-500">Salarié</th><th class="p-3 text-left text-gray-500">Nb jours</th><th class="p-3 text-left text-gray-500">Total heures</th></tr></thead><tbody id="t-chan"></tbody></table>
+      </div>
+    </div>
+
+    <!-- Par salarié -->
+    <div id="panel-salarie" class="hidden">
+      <div class="flex gap-4 items-end mb-4 flex-wrap">
+        <label class="text-sm"><span class="text-gray-500">Salarié</span>
+          <select id="r-sal" class="mt-1 block border rounded-lg px-3 py-2 text-sm w-64"></select>
+        </label>
+        <label class="text-sm"><span class="text-gray-500">Du</span>
+          <input type="date" id="r-sal-from" class="mt-1 block border rounded-lg px-3 py-2 text-sm">
+        </label>
+        <label class="text-sm"><span class="text-gray-500">Au</span>
+          <input type="date" id="r-sal-to" class="mt-1 block border rounded-lg px-3 py-2 text-sm">
+        </label>
+        <button onclick="runSalarie()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 mt-auto">Afficher</button>
+      </div>
+      <div class="bg-white rounded-xl shadow overflow-x-auto mt-4">
+        <table class="min-w-full text-sm"><thead><tr class="border-b"><th class="p-3 text-left text-gray-500">Chantier</th><th class="p-3 text-left text-gray-500">Client</th><th class="p-3 text-left text-gray-500">Nb jours</th><th class="p-3 text-left text-gray-500">Total heures</th></tr></thead><tbody id="t-sal"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let mode = "chantier";
+    let today = new Date().toISOString().split("T")[0];
+    let monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+
+    function switchMode(m) {
+      mode = m;
+      document.getElementById("btn-chantier").className = mode === "chantier" ? "px-4 py-2 rounded-lg text-sm bg-blue-600 text-white" : "px-4 py-2 rounded-lg text-sm bg-gray-200 text-gray-700";
+      document.getElementById("btn-sal").className = mode === "salarie" ? "px-4 py-2 rounded-lg text-sm bg-blue-600 text-white" : "px-4 py-2 rounded-lg text-sm bg-gray-200 text-gray-700";
+      document.getElementById("panel-chantier").classList.toggle("hidden", mode !== "chantier");
+      document.getElementById("panel-salarie").classList.toggle("hidden", mode !== "salarie");
+    }
+
+    async function loadSelects() {
+      const [chanRes, salRes] = await Promise.all([fetch("/api/chantiers"), fetch("/api/salaries")]);
+      const chantiers = await chanRes.json();
+      const sataires = await salRes.json();
+
+      document.getElementById("r-chan").innerHTML = chantiers.map(c => `<option value="${c.id}">${c.nom}</option>`).join("");
+      document.getElementById("r-sal").innerHTML = sataires.map(s => `<option value="${s.id}">${s.nom} ${s.prenom}</option>`).join("");
+
+      document.getElementById("r-chan-from").value = monthAgo;
+      document.getElementById("r-chan-to").value = today;
+      document.getElementById("r-sal-from").value = monthAgo;
+      document.getElementById("r-sal-to").value = today;
+    }
+
+    async function runChantier() {
+      const id = document.getElementById("r-chan").value;
+      const from = document.getElementById("r-chan-from").value;
+      const to = document.getElementById("r-chan-to").value;
+      if (!id || !from || !to) return;
+      const res = await fetch(`/api/rapports/chantier?chantier_id=${id}&from=${from}&to=${to}`);
+      const rows = await res.json();
+      document.getElementById("t-chan").innerHTML = rows.length === 0
+        ? `<tr><td class="p-4 text-gray-400" colspan="3">Aucune donnée</td></tr>`
+        : rows.map(r => `<tr class="border-b"><td class="p-3">${r.nom} ${r.prenom}</td><td class="p-3">${r.nb_jours}</td><td class="p-3 font-medium">${r.total_heures.toFixed(1)}h</td></tr>`).join("");
+    }
+
+    async function runSalarie() {
+      const id = document.getElementById("r-sal").value;
+      const from = document.getElementById("r-sal-from").value;
+      const to = document.getElementById("r-sal-to").value;
+      if (!id || !from || !to) return;
+      const res = await fetch(`/api/rapports/salarie?salarie_id=${id}&from=${from}&to=${to}`);
+      const rows = await res.json();
+      document.getElementById("t-sal").innerHTML = rows.length === 0
+        ? `<tr><td class="p-4 text-gray-400" colspan="4">Aucune donnée</td></tr>`
+        : rows.map(r => `<tr class="border-b"><td class="p-3">${r.nom}</td><td class="p-3">${r.client||""}</td><td class="p-3">${r.nb_jours}</td><td class="p-3 font-medium">${r.total_heures.toFixed(1)}h</td></tr>`).join("");
+    }
+
+    loadSelects();
+    runChantier();
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "pointage-chantier",
+  "version": "1.0.0",
+  "description": "Application de pointage des ouvriers sur les chantiers",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "better-sqlite3": "^11.0.0"
+  }
+}

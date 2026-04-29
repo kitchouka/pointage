@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salariés — Pointage Chantier</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <nav class="bg-white shadow-sm border-b">
+    <div class="max-w-7xl mx-auto px-4 py-2 flex gap-4 text-sm">
+      <a href="index.html" class="py-3 px-2 hover:text-blue-600">📋 Pointage</a>
+      <a href="chantiers.html" class="py-3 px-2 hover:text-blue-600">🏗️ Chantiers</a>
+      <a href="salaires.html" class="py-3 px-2 border-blue-500 border-b-2 text-blue-600 font-semibold">👷 Salariés</a>
+      <a href="calendrier.html" class="py-3 px-2 hover:text-blue-600">📅 Calendrier</a>
+      <a href="affectations.html" class="py-3 px-2 hover:text-blue-600">📝 Affectations</a>
+      <a href="rapports.html" class="py-3 px-2 hover:text-blue-600">📊 Rapports</a>
+      <a href="financier.html" class="py-3 px-2 hover:text-blue-600">💰 Financier</a>
+    </div>
+  </nav>
+
+  <div class="max-w-4xl mx-auto px-4 py-6">
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold">👷 Salariés</h1>
+      <button onclick="openAdd()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">+ Nouveau</button>
+    </div>
+
+    <div class="bg-white rounded-xl shadow overflow-hidden">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b bg-gray-50">
+            <th class="p-3 text-left text-gray-600">Nom</th>
+            <th class="p-3 text-left text-gray-600">Prénom</th>
+            <th class="p-3 text-left text-gray-600">Poste</th>
+            <th class="p-3 text-left text-gray-600">Tarif horaire</th>
+            <th class="p-3 text-left text-gray-600">Coefficient</th>
+            <th class="p-3 text-right text-gray-600">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+    <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+      <h2 id="modal-title" class="text-lg font-bold mb-4">Nouveau salarié</h2>
+      <div class="space-y-3">
+        <div class="flex gap-3">
+          <input id="f-nom" class="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Nom *">
+          <input id="f-prenom" class="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Prénom">
+        </div>
+        <input id="f-poste" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Poste">
+        <div class="flex gap-3">
+          <input id="f-tarif" type="number" step="0.01" class="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Tarif horaire €">
+          <input id="f-coeff" class="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="Coefficient">
+        </div>
+      </div>
+      <div class="flex gap-2 justify-end mt-5">
+        <button onclick="closeModal()" class="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50">Annuler</button>
+        <button onclick="saveSalarie()" class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let editingId = null;
+    let allSalarie = [];
+
+    async function load() {
+      const res = await fetch("/api/salaries");
+      allSalarie = await res.json();
+      render();
+    }
+
+    function render() {
+      const tb = document.getElementById("tbody");
+      tb.innerHTML = "";
+      allSalarie.forEach(s => {
+        const tr = document.createElement("tr");
+        tr.className = "border-b hover:bg-gray-50";
+        tr.innerHTML = `
+          <td class="p-3 font-medium">${s.nom}</td>
+          <td class="p-3">${s.prenom || ""}</td>
+          <td class="p-3">${s.poste || ""}</td>
+          <td class="p-3">${s.tarif_horaire ? s.tarif_horaire + " €" : ""}</td>
+          <td class="p-3">${s.coefficient || ""}</td>
+          <td class="p-3 text-right">
+            <button class="text-blue-600 text-xs mr-2" onclick="editSalarie(${s.id})">Modifier</button>
+            <button class="text-red-500 text-xs" onclick="delSalarie(${s.id})">Désactiver</button>
+          </td>`;
+        tb.appendChild(tr);
+      });
+    }
+
+    function openAdd() {
+      editingId = null;
+      document.getElementById("modal-title").textContent = "Nouveau salarié";
+      document.getElementById("f-nom").value = "";
+      document.getElementById("f-prenom").value = "";
+      document.getElementById("f-poste").value = "";
+      document.getElementById("f-tarif").value = "";
+      document.getElementById("f-coeff").value = "";
+      document.getElementById("modal").classList.remove("hidden");
+    }
+
+    function editSalarie(id) {
+      const s = allSalarie.find(x => x.id === id);
+      if (!s) return;
+      editingId = id;
+      document.getElementById("modal-title").textContent = "Modifier salarié";
+      document.getElementById("f-nom").value = s.nom || "";
+      document.getElementById("f-prenom").value = s.prenom || "";
+      document.getElementById("f-poste").value = s.poste || "";
+      document.getElementById("f-tarif").value = s.tarif_horaire || "";
+      document.getElementById("f-coeff").value = s.coefficient || "";
+      document.getElementById("modal").classList.remove("hidden");
+    }
+
+    async function delSalarie(id) {
+      if (!confirm("Désactiver ce salarié ? (soft delete)")) return;
+      await fetch("/api/salaries/" + id, { method: "DELETE" });
+      load();
+    }
+
+    async function saveSalarie() {
+      const body = {
+        nom: document.getElementById("f-nom").value,
+        prenom: document.getElementById("f-prenom").value,
+        poste: document.getElementById("f-poste").value,
+        tarif_horaire: parseFloat(document.getElementById("f-tarif").value) || 0,
+        coefficient: document.getElementById("f-coeff").value
+      };
+      if (editingId) {
+        await fetch("/api/salaries/" + editingId, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+      } else {
+        await fetch("/api/salaries", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+      }
+      closeModal();
+      load();
+    }
+
+    function closeModal() {
+      document.getElementById("modal").classList.add("hidden");
+    }
+
+    load();
+  </script>
+</body>
+</html>
