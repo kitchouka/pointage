@@ -131,7 +131,15 @@
         linesDiv.className = "lines-c";
 
         pts.forEach((pt, idx) => {
-          const hours = pt.heure_arrivee && pt.heure_depart ? (parseInt(pt.heure_depart.split(":")[0]) + parseInt(pt.heure_depart.split(":")[1])/60 - parseInt(pt.heure_arrivee.split(":")[0]) - parseInt(pt.heure_arrivee.split(":")[1])/60) : "";
+          // Read hours from commentaire (e.g. "8h") or fallback to heure_arrivee/depart
+          let hours = "";
+          if (pt.commentaire) {
+            const m = pt.commentaire.match(/(\d+(?:\.\d+)?)/);
+            hours = m ? parseFloat(m[1]) : "";
+          } else if (pt.heure_arrivee && pt.heure_depart) {
+            hours = parseInt(pt.heure_depart.split(":")[0]) * 60 + parseInt(pt.heure_depart.split(":")[1]) - (parseInt(pt.heure_arrivee.split(":")[0]) * 60 + parseInt(pt.heure_arrivee.split(":")[1]));
+            hours = hours / 60;
+          }
           const isAbs = !!pt.motif_absence;
           const affectVal = isAbs ? "absence" : (pt.chantier_id ? `c:${pt.chantier_id}` : "");
           const delVis = pts.length > 1;

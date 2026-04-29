@@ -197,7 +197,8 @@ app.post("/api/generate", (req, res) => {
           continue;
         }
 
-        createPointage.run(salarie_id, chantier_id, dateStr, heureArr, heureDep, "auto", "", null);
+        // Store hours in commentaire (e.g. "8h" or "7h"), not in arrivee/depart fields
+        createPointage.run(salarie_id, chantier_id, dateStr, null, null, "auto", isFriday ? "7h" : "8h", null);
         created++;
       }
       current.setDate(current.getDate() + 1);
