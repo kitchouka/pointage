@@ -167,16 +167,17 @@ app.delete("/api/pointages/:id", (req, res) => {
 });
 
 // ============================================================
-// GENERATE POINTAGES FROM AFFECTATIONS
+// GENERATE POINTAGES (affecter un salarié à un chantier pour une période)
 // ============================================================
 
 app.post("/api/generate", (req, res) => {
-  const { from, to } = req.body;
-  if (!from || !to) return res.status(400).json({ error: "from and to dates required" });
+  const { salarie_id, chantier_id, from, to } = req.body;
+  if (!salarie_id || !chantier_id || !from || !to) {
+    return res.status(400).json({ error: "salarie_id, chantier_id, from, to required" });
+  }
 
   const existing = getPointagesByRange.all(from, to);
   let created = 0;
-  const affectations = getAffectationsForRange.all(to, from);
 
   const transaction = db.transaction(() => {
     const start = new Date(from);
@@ -185,20 +186,20 @@ app.post("/api/generate", (req, res) => {
 
     while (current <= end) {
       const day = current.getDay();
-      const dayNum = current.getDate();
       if (day >= 1 && day <= 5) {
         const isFriday = day === 5;
         const heureArr = "08:00";
         const heureDep = isFriday ? "16:00" : "17:00";
         const dateStr = current.toISOString().split("T")[0];
 
-        for (const aff of affectations) {
-          const alreadyExists = existing.find(p => p.salarie_id === aff.salarie_id && p.date === dateStr);
-          if (alreadyExists) continue;
-          if (dateStr < aff.date_debut || dateStr > aff.date_fin) continue;
-          db.prepare(`INSERT OR IGNORE INTO pointages (salarie_id, chantier_id, date, heure_arrivee, heure_depart, type) VALUES (?, ?, ?, ?, ?, 'auto')`).run(aff.salarie_id, aff.chantier_id, dateStr, heureArr, heureDep);
-          created++;
+        const alreadyExists = existing.find(p => p.salarie_id === salarie_id && p.date === dateStr);
+        if (alreadyExists) {
+          current.setDate(current.getDate() + 1);
+          continue;
         }
+
+        createPointage.run(salarie_id, chantier_id, dateStr, heureArr, heureDep, "auto", "", null);
+        created++;
       }
       current.setDate(current.getDate() + 1);
     }
@@ -206,7 +207,7 @@ app.post("/api/generate", (req, res) => {
 
   try {
     transaction();
-    res.json({ created, message: `${created} pointages générés` });
+    res.json({ created, message: `${created} jour(s) généré(s) pour ${from} → ${to}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

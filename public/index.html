@@ -49,15 +49,25 @@
   <!-- Modal Génération -->
   <div id="gen-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
     <div class="bg-white rounded-xl p-6 w-96">
-      <h2 class="text-lg font-bold mb-4">⚡ Générer les pointages</h2>
-      <p class="text-xs text-gray-500 mb-4">Auto-générés depuis les affectations (Lun-Jeu 8h-17h, Ven 8h-16h).</p>
+      <h2 class="text-lg font-bold mb-4">⚡ Affecter un salarié à un chantier</h2>
+      <p class="text-xs text-gray-500 mb-4">Génère les pointages 8h-17h (Lun-Jeu) ou 8h-16h (Ven) pour la période choisie.</p>
       <div class="space-y-3">
-        <label class="text-sm block"><span class="text-gray-500">Du</span>
-          <input type="date" id="g-from" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm">
+        <label class="text-sm block">
+          <span class="text-gray-500">Salarié</span>
+          <select id="g-sal" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm"></select>
         </label>
-        <label class="text-sm block"><span class="text-gray-500">Au</span>
-          <input type="date" id="g-to" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm">
+        <label class="text-sm block">
+          <span class="text-gray-500">Chantier</span>
+          <select id="g-chan" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm"></select>
         </label>
+        <div class="flex gap-3">
+          <label class="flex-1 text-sm"><span class="text-gray-500">Du</span>
+            <input type="date" id="g-from" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm">
+          </label>
+          <label class="flex-1 text-sm"><span class="text-gray-500">Au</span>
+            <input type="date" id="g-to" class="mt-1 w-full border rounded-lg px-3 py-2 text-sm">
+          </label>
+        </div>
       </div>
       <div class="flex gap-2 justify-end mt-5">
         <button onclick="closeGenModal()" class="px-4 py-2 text-sm border rounded-lg">Annuler</button>
@@ -82,6 +92,9 @@
         fetch("/api/salaries").then(r=>r.json()),
         fetch("/api/chantiers").then(r=>r.json())
       ]);
+      // Populate modal selects
+      document.getElementById("g-sal").innerHTML = allSal.map(s => `<option value="${s.id}">${s.nom} ${s.prenom}</option>`).join("");
+      document.getElementById("g-chan").innerHTML = allChan.map(c => `<option value="${c.id}">${c.nom}</option>`).join("");
       loadForDate(document.getElementById("pointage-date").value);
     }
 
@@ -317,14 +330,20 @@
     function closeGenModal() { document.getElementById("gen-modal").classList.add("hidden"); document.getElementById("g-result").classList.add("hidden"); }
 
     async function doGenerate() {
+      const salId = document.getElementById("g-sal").value;
+      const chanId = document.getElementById("g-chan").value;
       const from = document.getElementById("g-from").value, to = document.getElementById("g-to").value;
-      if (!from || !to) return;
-      const res = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from, to }) });
+      if (!salId || !chanId || !from || !to) return alert("Choisis un salarié, un chantier et une période");
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ salarie_id: parseInt(salId), chantier_id: parseInt(chanId), from, to })
+      });
       const data = await res.json();
       const r = document.getElementById("g-result");
       r.textContent = data.message || "Fait !";
       r.classList.remove("hidden");
-      setTimeout(closeGenModal, 1500);
+      setTimeout(() => { closeGenModal(); loadForDate(document.getElementById("pointage-date").value); }, 2000);
     }
 
     document.getElementById("pointage-date").addEventListener("change", e => loadForDate(e.target.value));
