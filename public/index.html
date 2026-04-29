@@ -293,11 +293,20 @@
     async function saveAll() {
       const date = document.getElementById("pointage-date").value;
       const lines = [];
+      const errors = [];
+      const isFri = new Date(date).getDay() === 5;
+      const expectedHours = isFri ? 7 : 8;
 
       document.querySelectorAll(".sal-block").forEach(block => {
         const salId = parseInt(block.dataset.salId);
+        const salName = block.querySelector(".font-semibold").textContent.trim();
         const desactive = block.querySelector(".desactive-cb").checked;
         if (desactive) return;
+
+        let totalMinutes = 0;
+        let hasAbsence = false;
+        let hasChantier = false;
+        const empLines = [];
 
         block.querySelectorAll(".line-row").forEach(row => {
           const fullDay = row.querySelector(".full-day-cb").checked;
@@ -308,22 +317,64 @@
           let dep = row.querySelector(".dep").value;
 
           if (absent) {
-            lines.push({ salarie_id: salId, chantier_id: null, heure_arrivee: null, heure_depart: null, motif_absence: motif, type: "manuel" });
-          } else if (chantId) {
+            hasAbsence = true;
+            empLines.push({
+              salarie_id: salId, chantier_id: null,
+              heure_arrivee: null, heure_depart: null,
+              motif_absence: motif || "Absence", type: "manuel"
+            });
+            return;
+          }
+
+          if (chantId) {
+            hasChantier = true;
             if (fullDay || (!arr && !dep)) {
-              const isFri = new Date(date).getDay() === 5;
               arr = "08:00";
               dep = isFri ? "16:00" : "17:00";
             }
-            lines.push({ salarie_id: salId, chantier_id: parseInt(chantId), heure_arrivee: arr, heure_depart: dep, motif_absence: null, type: "manuel" });
+            if (arr && dep) {
+              const [ah, am] = arr.split(":").map(Number);
+              const [dh, dm] = dep.split(":").map(Number);
+              totalMinutes += (dh * 60 + dm) - (ah * 60 + am);
+            }
+            empLines.push({
+              salarie_id: salId, chantier_id: parseInt(chantId),
+              heure_arrivee: arr, heure_depart: dep,
+              motif_absence: null, type: "manuel"
+            });
           }
         });
+
+        // Cohérence
+        if (!hasAbsence && !hasChantier) {
+          errors.push(`⚠️ ${salName} : aucune saisie (ni chantier ni absence)`);
+          return;
+        }
+
+        const totalHours = totalMinutes / 60;
+        if (!hasAbsence && Math.abs(totalHours - expectedHours) > 0.5) {
+          errors.push(`⚠️ ${salName} : ${totalHours.toFixed(1)}h au lieu de ${expectedHours}h (${isFri ? 'vendredi' : 'lun-jeu'})`);
+          return;
+        }
+
+        lines.push(...empLines);
       });
 
+      if (errors.length > 0) {
+        const msgEl = document.getElementById("msg");
+        msgEl.innerHTML = errors.join("<br>");
+        msgEl.className = "mt-4 text-sm text-red-600 font-medium";
+        msgEl.classList.remove("hidden");
+        setTimeout(() => msgEl.classList.add("hidden"), 5000);
+        return;
+      }
+
       if (lines.length === 0) {
-        document.getElementById("msg").textContent = "Rien à sauvegarder (tout est décoché ou désactivé)";
-        document.getElementById("msg").classList.remove("hidden");
-        setTimeout(() => document.getElementById("msg").classList.add("hidden"), 3000);
+        const msgEl = document.getElementById("msg");
+        msgEl.textContent = "Rien à sauvegarder (tout est désactivé)";
+        msgEl.className = "mt-4 text-sm text-orange-600 font-medium";
+        msgEl.classList.remove("hidden");
+        setTimeout(() => msgEl.classList.add("hidden"), 3000);
         return;
       }
 
@@ -335,6 +386,7 @@
 
       const msgEl = document.getElementById("msg");
       msgEl.textContent = `${lines.length} ligne(s) sauvegardée(s) ✅`;
+      msgEl.className = "mt-4 text-sm text-green-600 font-medium";
       msgEl.classList.remove("hidden");
       setTimeout(() => msgEl.classList.add("hidden"), 3000);
       loadForDate(date);
