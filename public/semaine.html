@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Charges Salariés</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div class="max-w-7xl mx-auto px-4 py-8">
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold">💰 Charges salariés</h1>
+      <div class="flex gap-3 items-center">
+        <button onclick="prevMonth()" class="bg-white border rounded-lg px-3 py-2 text-sm hover:bg-gray-50">◀</button>
+        <span id="month-label" class="text-lg font-semibold min-w-36 text-center"></span>
+        <button onclick="nextMonth()" class="bg-white border rounded-lg px-3 py-2 text-sm hover:bg-gray-50">▶</button>
+      </div>
+    </div>
+
+    <div id="month-container" class="space-y-6"></div>
+  </div>
+
+  <script>
+    const MOIS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    const JOURS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+    let currentYear, currentMonth;
+    let allSal = [], allChan = [];
+
+    async function loadRef() {
+      [allSal, allChan] = await Promise.all([
+        fetch("/api/salaries").then(r=>r.json()),
+        fetch("/api/chantiers").then(r=>r.json())
+      ]);
+    }
+
+    function initMonth() {
+      const now = new Date();
+      currentYear = now.getFullYear();
+      currentMonth = now.getMonth();
+    }
+    function prevMonth() { currentMonth--; if(currentMonth<0){currentMonth=11;currentYear--;} loadData(); }
+    function nextMonth() { currentMonth++; if(currentMonth>11){currentMonth=0;currentYear++;} loadData(); }
+
+    function escapeHtml(s) { return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+    async function loadData() {
+      await loadRef();
+      const monthStr = `${currentYear}-${String(currentMonth+1).padStart(2,"0")}`;
+      document.getElementById("month-label").textContent = MOIS[currentMonth] + " " + currentYear;
+
+      // Get all pointages for the month
+      const startOfMonth = `${monthStr}-01`;
+      const daysInMonth = new Date(currentYear, currentMonth+1, 0).getDate();
+      const endOfMonth = `${monthStr}-${String(daysInMonth).padStart(2,"0")}`;
+
+      const [ptsRes] = await Promise.all([
+        fetch(`/api/pointages?from=${startOfMonth}&to=${endOfMonth}`).then(r=>r.json())
+      ]);
+
+      if (!ptsRes.length) {
+        document.getElementById("month-container").innerHTML = `<div class="bg-white rounded-xl shadow p-8 text-center text-gray-400">Aucun pointage ce mois-ci.</div>`;
+        return;
+      }
+
+      // Build semaines
+      const bySalDate = {};
+      ptsRes.forEach(p => {
+        const key = `${p.salarie_id}_${p.date}`;
+        if (!bySalDate[key]) bySalDate[key] = [];
+        bySalDate[key].push(p);
+      });
+
+      // Get weekday dates for this month (Mon-Fri only)
+      const wdDates = [];
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dt = new Date(currentYear, currentMonth, d);
+        const dow = dt.getDay();
+        if (dow >= 1 && dow <= 5) {
+          wdDates.push({
+            date: `${monthStr}-${String(d).padStart(2,"0")}`,
+            num: d,
+            nom: JOURS[dow - 1],
+            mois: String(monthStr).substring(5,7)
+          });
+        }
+      }
+
+      // Group by week
+      const semaines = [];
+      let currentWeek = null;
+      for (const dt of wdDates) {
+        if (!currentWeek) currentWeek = { jours: [], debut: dt.date };
+        currentWeek.jours.push(dt);
+        const isFriday = new Date(dt.date).getDay() === 5;
+        if (isFriday) { currentWeek.fin = dt.date; semaines.push(currentWeek); currentWeek = null; }
+      }
+      if (currentWeek) { currentWeek.fin = currentWeek.jours[currentWeek.jours.length-1].date; semaines.push(currentWeek); }
+
+      const container = document.getElementById("month-container");
+      container.innerHTML = "";
+
+      semaines.forEach((sem, si) => {
+        sem.id = si + 1;
+        let semTotalH = 0, semTotalC = 0;
+        const totalHeures = {}, totalCout = {};
+
+        const section = document.createElement("div");
+        section.className = "bg-white rounded-xl shadow overflow-hidden";
+
+        const head = document.createElement("div");
+        head.className = "bg-gray-50 px-4 py-2 border-b";
+        head.innerHTML = `<span class="font-semibold text-sm">Semaine ${si+1} · ${sem.debut} → ${sem.fin}</span>`;
+        section.appendChild(head);
+
+        const table = document.createElement("table");
+        table.className = "min-w-full text-sm";
+        table.innerHTML = `<thead><tr class="border-b">
+          <th class="p-3 text-left text-gray-600 w-10">#</th>
+          <th class="p-3 text-left text-gray-600">Salarié</th>
+          <th class="p-3 text-left text-gray-600">Tarif/h</th>
+          ${sem.jours.map(j => `<th class="p-3 text-center text-gray-500 text-xs">${j.nom} ${j.num}/${j.mois}</th>`).join("")}
+          <th class="p-3 text-right text-gray-600">Total h</th>
+          <th class="p-3 text-right text-gray-600">Total €</th>
+        </tr></thead>`;
+
+        const tbody = document.createElement("tbody");
+
+        for (const sal of allSal) {
+          const tr = document.createElement("tr");
+          tr.className = "border-b hover:bg-gray-50";
+
+          let salH = 0, salC = 0;
+          let dayCells = "";
+
+          for (const jour of sem.jours) {
+            const key = `${sal.id}_${jour.date}`;
+            const entries = bySalDate[key] || [];
+            if (entries.length === 0) continue;
+
+            let jourH = 0;
+            let affectNames = [];
+
+            entries.forEach(e => {
+              let h = 0;
+              if (e.commentaire) {
+                const m = e.commentaire.match(/(\d+(?:\.\d+)?)/);
+                h = m ? parseFloat(m[1]) : 0;
+              }
+              jourH += h;
+
+              if (e.motif_absence) affectNames.push(`🚫 ${e.motif_absence}`);
+              else if (e.chantier_nom) affectNames.push(e.chantier_nom);
+            });
+
+            salH += jourH;
+            const jourCout = jourH * (sal.tarif_horaire || 0);
+            salC += jourCout;
+
+            const coutStr = jourCout ? jourCout.toFixed(0) + " €" : "—";
+            const hStr = jourH ? jourH.toFixed(1) + "h" : "—";
+
+            dayCells += `<td class="p-3 text-center align-top">
+              <div class="text-xs leading-tight max-w-36 truncate">${affectNames[0] || "—"}</div>
+              <div class="text-xs font-bold mt-1">${hStr}</div>
+              <div class="text-xs text-gray-500">${coutStr}</div>
+            </td>`;
+          }
+
+          totalHeures[sal.id] = salH;
+          totalCout[sal.id] = salC;
+          semTotalH += salH;
+          semTotalC += salC;
+
+          const totalHStr = salH ? salH.toFixed(1) + "h" : "—";
+          const totalEStr = salC ? salC.toLocaleString("fr-FR", {style:"currency", currency:"EUR"}) : "—";
+
+          tr.innerHTML = `
+            <td class="p-3 text-xs text-gray-400">${si+1}</td>
+            <td class="p-3 font-medium">${sal.nom} ${sal.prenom}</td>
+            <td class="p-3 text-sm text-gray-500">${sal.tarif_horaire || 0} €</td>
+            ${dayCells}
+            <td class="p-3 text-right font-bold">${totalHStr}</td>
+            <td class="p-3 text-right font-bold">${totalEStr}</td>`;
+          tbody.appendChild(tr);
+        }
+
+        table.appendChild(tbody);
+        section.appendChild(table);
+
+        // Footer row
+        const footer = document.createElement("div");
+        footer.className = "bg-gray-50 px-4 py-2 border-t flex items-center justify-between text-sm";
+        footer.innerHTML = `<span>Semaine ${si+1} · ${sem.debut} → ${sem.fin}</span><span class="font-bold">Total : ${semTotalH.toFixed(1)}h · ${semTotalC.toLocaleString("fr-FR",{style:"currency",currency:"EUR"})}</span>`;
+        section.appendChild(footer);
+
+        container.appendChild(section);
+      });
+    }
+
+    // Init
+    initMonth();
+    loadData();
+  </script>
+</body>
+</html>

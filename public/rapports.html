@@ -100,9 +100,10 @@
       if (!id || !from || !to) return;
       const res = await fetch(`/api/rapports/chantier?chantier_id=${id}&from=${from}&to=${to}`);
       const rows = await res.json();
+      const totalH = rows.reduce((s, r) => s + parseFloat(r.total_heures||0), 0);
       document.getElementById("t-chan").innerHTML = rows.length === 0
         ? `<tr><td class="p-4 text-gray-400" colspan="3">Aucune donnée</td></tr>`
-        : rows.map(r => `<tr class="border-b"><td class="p-3">${r.nom} ${r.prenom}</td><td class="p-3">${r.nb_jours}</td><td class="p-3 font-medium">${r.total_heures.toFixed(1)}h</td></tr>`).join("");
+        : rows.map(r => `<tr class="border-b"><td class="p-3">${r.nom} ${r.prenom}</td><td class="p-3">${r.nb_jours}</td><td class="p-3 font-medium">${parseFloat(r.total_heures).toFixed(1)}h</td></tr>`).join("") + `<tr class="border-t font-bold"><td class="p-3" colspan="2">Total</td><td class="p-3">${totalH.toFixed(1)}h</td></tr>`;
     }
 
     async function runSalarie() {
@@ -112,9 +113,10 @@
       if (!id || !from || !to) return;
       const res = await fetch(`/api/rapports/salarie?salarie_id=${id}&from=${from}&to=${to}`);
       const rows = await res.json();
+      const totalH = rows.reduce((s,r) => s + parseFloat(r.total_heures||0), 0);
       document.getElementById("t-sal").innerHTML = rows.length === 0
         ? `<tr><td class="p-4 text-gray-400" colspan="4">Aucune donnée</td></tr>`
-        : rows.map(r => `<tr class="border-b"><td class="p-3">${r.nom}</td><td class="p-3">${r.client||""}</td><td class="p-3">${r.nb_jours}</td><td class="p-3 font-medium">${r.total_heures.toFixed(1)}h</td></tr>`).join("");
+        : rows.map(r => `<tr class="border-b"><td class="p-3">${r.nom}</td><td class="p-3">${r.client||""}</td><td class="p-3">${r.nb_jours}</td><td class="p-3 font-medium">${parseFloat(r.total_heures).toFixed(1)}h</td></tr>`).join("") + `<tr class="border-t font-bold"><td class="p-3" colspan="3">Total</td><td class="p-3">${totalH.toFixed(1)}h</td></tr>`;
     }
 
     loadSelects();
